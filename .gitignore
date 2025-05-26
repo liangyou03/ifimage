@@ -1,0 +1,12 @@
+# ── ignore everything ───────────────────
+*
+
+# ── allow Git to recurse into folders ───
+!*/
+
+# ── but only track .py and .ipynb ──────
+!*.py
+!*.ipynb
+
+# ── make sure Git still sees this file ─
+!.gitignore
