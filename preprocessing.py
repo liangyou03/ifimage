@@ -17,8 +17,6 @@ from skimage.io import imread
 from roifile import ImagejRoi
 from skimage.draw import polygon
 
-
-
 # batch_process_zip_rois->batch_rename
 
 class SamplePreprocessor:
@@ -404,7 +402,93 @@ import os
 import re
 import shutil
 
+
+import os
+import re
+import shutil
+
 def batch_rename(top_root, dest_root):
+    """
+    三层遍历 + 支持多种 RoiSet_CellBodies 形式
+    1. Snap b0c1 → {type}_{id}_marker.tiff
+    2. Snap b0c0 → {type}_{id}.tiff
+    3. RoiSet_{id}_DAPI.(npy|zip) → {type}_{id}_dapimultimask.(same ext)
+    4. RoiSet_{id}_PECAM.(npy|zip) → {type}_{id}_cellbodiesmultimask.(same ext)
+    5. RoiSet_CellBodies_Final.(npy|zip) → {type}_{id}_cellbodies.(same ext)
+    6. **新增** RoiSet_{id}_{TYPE}_CellBodies.(npy|zip) → {type}_{id}_cellbodies.(same ext)
+    """
+    sample_dir_re = re.compile(r"^([A-Za-z0-9]+)_(\d+)$")
+    snap_base      = re.compile(r"Snap-(\d+)_b0c0.*\.tiff?$", re.IGNORECASE)
+    snap_marker    = re.compile(r"Snap-(\d+)_b0c1.*\.tiff?$", re.IGNORECASE)
+    roi_dapi       = re.compile(r"RoiSet_(\d+)_DAPI\.(npy|zip)$", re.IGNORECASE)
+    roi_pecam      = re.compile(r"RoiSet_(\d+)_PECAM\.(npy|zip)$", re.IGNORECASE)
+    roi_cellbodies = re.compile(r"RoiSet_CellBodies_Final\.(npy|zip)$", re.IGNORECASE)
+    roi_generic_cb = re.compile(r"RoiSet_(\d+)_([A-Za-z0-9]+)_CellBodies\.(npy|zip)$", re.IGNORECASE)
+
+    os.makedirs(dest_root, exist_ok=True)
+
+    for group in os.listdir(top_root):
+        group_path = os.path.join(top_root, group)
+        if not os.path.isdir(group_path):
+            continue
+
+        # 遍历样本文件夹
+        for sample in os.listdir(group_path):
+            sample_path = os.path.join(group_path, sample)
+
+            # 如果它是文件而非目录，咱们也想处理可能的 generic pattern
+            if os.path.isfile(sample_path):
+                fn = sample
+                m = roi_generic_cb.match(fn)
+                if m:
+                    sid, ctype, ext = m.group(1), m.group(2).lower(), m.group(3)
+                    prefix = f"{ctype}_{sid}"
+                    dst_folder = os.path.join(dest_root, prefix)
+                    os.makedirs(dst_folder, exist_ok=True)
+                    new_fn = f"{prefix}_cellbodies.{ext}"
+                    shutil.copy2(sample_path, os.path.join(dst_folder, new_fn))
+                    print(f"✅ (generic) {fn} → {prefix}/{new_fn}")
+                continue
+
+            # 如果是目录就用原逻辑
+            mdir = sample_dir_re.match(sample)
+            if not (os.path.isdir(sample_path) and mdir):
+                continue
+            ctype, sid = mdir.group(1).lower(), mdir.group(2)
+            prefix = f"{ctype}_{sid}"
+            dst_folder = os.path.join(dest_root, prefix)
+            os.makedirs(dst_folder, exist_ok=True)
+
+            for fn in os.listdir(sample_path):
+                src = os.path.join(sample_path, fn)
+                ext = os.path.splitext(fn)[1]
+                new_fn = None
+
+                # priority: generic CellBodies before other roi rules?
+                m = roi_generic_cb.match(fn)
+                if m:
+                    new_fn = f"{prefix}_cellbodies{ext}"
+                elif snap_marker.match(fn):
+                    new_fn = f"{prefix}_marker.tiff"
+                elif snap_base.match(fn):
+                    new_fn = f"{prefix}.tiff"
+                elif roi_dapi.match(fn):
+                    new_fn = f"{prefix}_dapimultimask{ext}"
+                elif roi_pecam.match(fn):
+                    new_fn = f"{prefix}_cellbodiesmultimask{ext}"
+                elif roi_cellbodies.match(fn):
+                    new_fn = f"{prefix}_cellbodies{ext}"
+
+                if new_fn:
+                    shutil.copy2(src, os.path.join(dst_folder, new_fn))
+                    print(f"✅ {sample}/{fn} → {prefix}/{new_fn}")
+                else:
+                    print(f"⏭ 跳过 {sample}/{fn}")
+
+    print("🎉 全部处理完毕！")
+
+
+def batch_rename_old(top_root, dest_root):
     """
     三层遍历：top_root 下 → 细胞类型组 → 样本文件夹 → 文件
     样本 dir 名格式必须像 TYPE_ID（不论大小写，TYPE 里不能有下划线）
@@ -415,13 +499,15 @@ def batch_rename(top_root, dest_root):
       4. RoiSet_{id}_PECAM.npy → {type}_{id}_cellbodiesmultimask.npy
       5. RoiSet_CellBodies_Final.npy → {type}_{id}_cellbodies.npy
     """
+    
     sample_dir_re = re.compile(r"^([A-Za-z0-9]+)_(\d+)$")
     snap_base      = re.compile(r"Snap-(\d+)_b0c0.*\.tiff?$")
     snap_marker    = re.compile(r"Snap-(\d+)_b0c1.*\.tiff?$")
     roi_dapi       = re.compile(r"RoiSet_(\d+)_DAPI\.npy$")
     roi_pecam      = re.compile(r"RoiSet_(\d+)_PECAM\.npy$")
+    # roi_pecam      = re.compile(r"RoiSet_(\d+)_PECAM\.npy$")
     roi_cellbodies = re.compile(r"RoiSet_CellBodies_Final\.npy$")
-
+    
     os.makedirs(dest_root, exist_ok=True)
 
     for group in os.listdir(top_root):
@@ -464,8 +550,7 @@ def batch_rename(top_root, dest_root):
                     print(f"Skip {sample}/{fn}")
 
     print("All files renamed and copied to:", dest_root)
-
-# 调用示例：
+    
 # batch_rename(
 #     '/Users/macbookair/Downloads/new524',
 #     '/Users/macbookair/Downloads/new524/renamed'
@@ -503,3 +588,57 @@ def get_raw(sample_id: str, input_dir: str):
                 break
     return dapi, marker
 
+
+import zipfile
+import os
+
+def find_sample_dir_in_zip(zf: zipfile.ZipFile, sample_id: str):
+    """
+    Scan through the ZIP\'s namelist and find the first path segment matching sample_id.
+    Returns that folder\'s prefix (ending with '/'), or None if not found.
+    """
+    for name in zf.namelist():
+        parts = name.split('/')
+        if sample_id in parts:
+            idx = parts.index(sample_id)
+            return '/'.join(parts[: idx + 1]) + '/'
+    return None
+
+def get_raw_from_zip(sample_id: str, zip_path: str):
+    """
+    Open the ZIP at zip_path, locate the directory named sample_id,
+    then return two file-like objects for the TIFFs containing 'b0c0' and 'b0c1'.
+    Raises FileNotFoundError if folder or files are missing.
+    """
+    with zipfile.ZipFile(zip_path, 'r') as zf:
+        # 1) Find the sample directory prefix inside the ZIP
+        prefix = find_sample_dir_in_zip(zf, sample_id)
+        if not prefix:
+            raise FileNotFoundError(f"No folder named '{sample_id}' in ZIP '{zip_path}'")
+
+        dapi_stream = None
+        marker_stream = None
+
+        # 2) Scan the ZIP entries under that prefix
+        for info in zf.infolist():
+            if not info.filename.startswith(prefix):
+                continue
+            if info.is_dir() or not info.filename.lower().endswith('.tiff'):
+                continue
+            fname = os.path.basename(info.filename).lower()
+            if 'b0c0' in fname:
+                dapi_stream = zf.open(info)
+            elif 'b0c1' in fname:
+                marker_stream = zf.open(info)
+            if dapi_stream and marker_stream:
+                break
+        # 3) Error if something’s missing
+        missing = []
+        if not dapi_stream:
+            missing.append("b0c0 (DAPI)")
+        if not marker_stream:
+            missing.append("b0c1 (marker)")
+        if missing:
+            raise FileNotFoundError(f"Missing {', '.join(missing)} in '{sample_id}' inside ZIP")
+
+        return dapi_stream, marker_stream

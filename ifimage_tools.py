@@ -48,7 +48,9 @@ class ImageSample:
             self.dapi_multi_mask = safe_read(file)
         elif "cellbodiesmultimask" in filename:
             self.cellbodies_multimask = safe_read(file)
-        elif "cellbodies" in filename:
+        elif "cellbodies.npy" in filename:
+            self.cellbodies_multimask = safe_read(file)
+        elif "cellbodies.tif" in filename:
             self.cellbodies_mask = safe_read(file)
         elif len(filename.split("_")) == 2:
             self.dapi = safe_read(file)
@@ -143,7 +145,7 @@ class IfImageDataset:
         for file in mask_files:
             self._process_mask_file(file)
 
-    def summary(self):
+    def summary(self,table=False):
         print("Total samples:", len(self.samples))
         
         # Count samples by cell type
@@ -166,6 +168,23 @@ class IfImageDataset:
         print(f"  Samples with DAPI: {has_dapi}")
         print(f"  Samples with marker: {has_marker}")
         print(f"  Samples with manual count: {has_manual_count}")
+        
+        if table:
+            # Create table showing samples lacking key components
+            print("\nSamples missing key components:")
+            print(f"{'Sample ID':<15} {'Cell Type':<15} {'DAPI':<10} {'Marker':<10} {'DAPI Mask':<15} {'Cell Bodies':<15}")
+            print("-" * 80)
+            
+            for sample_id, sample in self.samples.items():
+                has_dapi = "✓" if sample.dapi is not None else "✗"
+                has_marker = "✓" if sample.marker is not None else "✗"
+                has_dapi_mask = "✓" if sample.dapi_multi_mask is not None else "✗"
+                has_cellbodies = "✓" if sample.cellbodies_multimask is not None else "✗"
+                
+                # Only show in table if missing at least one component
+                if "✗" in [has_dapi, has_marker, has_dapi_mask, has_cellbodies]:
+                    print(f"{sample_id:<15} {sample.celltype or 'Unknown':<15} {has_dapi:<10} {has_marker:<10} {has_dapi_mask:<15} {has_cellbodies:<15}")
+            
         
 
     def _process_image_file(self, file):
