@@ -22,6 +22,7 @@ class ImageSample:
             "cyto": None,
             "cyto2": None,
             "cyto3": None,
+            "cellposeSAM": None,
             "watershed": None,
             "StarDist2D": None
         }
@@ -68,33 +69,44 @@ class ImageSample:
         elif "cyto" in filename:
             self.masks["cyto"] = safe_read(file)
 
-    def apply_nuc_pipeline(self):
-        """Apply nucleus segmentation pipeline using various methods.
+    def apply_nuc_pipeline(self, methods=None):
+        """
+        Apply nucleus segmentation pipeline using various methods.
         """
         if self.dapi is None:
             print("Missing DAPI image; cannot run nucleus segmentation pipeline.")
             return
 
-        # Initialize Cellpose models
-        model_cyto = models.Cellpose(gpu=True, model_type='cyto')
-        model_cyto2 = models.Cellpose(gpu=True, model_type='cyto2')
-        model_cyto3 = models.Cellpose(gpu=True, model_type='cyto3')
+        if methods is None:
+            methods = ["cellposeSAM"]
+            
+        available_models = {
+            "cellposeSAM": lambda: models.CellposeModel(gpu=True),
+            "cyto":       lambda: models.CellposeModel(gpu=True, model_type='cyto'),
+            "cyto2":      lambda: models.CellposeModel(gpu=True, model_type='cyto2'),
+            "cyto3":      lambda: models.CellposeModel(gpu=True, model_type='cyto3'),
+        }
 
-        # Run Cellpose models
-        masks_cyto, _, _, _ = model_cyto.eval(self.dapi, diameter=None, channels=[0,0])
-        masks_cyto2, _, _, _ = model_cyto2.eval(self.dapi, diameter=None, channels=[0,0])
-        masks_cyto3, _, _, _ = model_cyto3.eval(self.dapi, diameter=None, channels=[0,0])
+        for method in methods:
+            if method in available_models:
+                try:
+                    model = available_models[method]()
+                    masks, _, _ = model.eval(self.dapi, diameter=None, channels=[0, 0])
+                    self.masks[method] = masks
+                    print(f"Applied {method}")
+                except Exception as e:
+                    print(f"Failed to apply {method}: {e}")
 
-        # Store Cellpose results
-        self.masks["cyto"] = masks_cyto
-        self.masks["cyto2"] = masks_cyto2
-        self.masks["cyto3"] = masks_cyto3
+        if "watershed" in methods:
+            try:
+                distance = distance_transform_edt(self.dapi > 0)
+                markers = ndimage.label(self.dapi > 0)[0]
+                ws_mask = watershed(-distance, markers, mask=self.dapi > 0)
+                self.masks["watershed"] = ws_mask
+                print("Applied watershed segmentation")
+            except Exception as e:
+                print(f"Watershed segmentation failed: {e}")
 
-        # Run watershed segmentation
-        distance = distance_transform_edt(self.dapi > 0)
-        markers = ndimage.label(self.dapi > 0)[0]
-        ws_mask = watershed(-distance, markers, mask=self.dapi > 0)
-        self.masks["watershed"] = ws_mask
 
     def get_positive_cyto_pipline(self, methods=["cellpose", "cellpose2chan" , "watershed", "cell_expansion","watershed_only_cyto"]):
         if self.marker is None or self.dapi_multi_mask is None:
