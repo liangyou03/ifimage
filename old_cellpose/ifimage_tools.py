@@ -6,12 +6,6 @@ from imagecodecs.imagecodecs import none_check
 from scipy.ndimage import distance_transform_edt
 from skimage.segmentation import watershed
 from stardist.matching import matching
-from stardist.models import StarDist2D
-from csbdeep.utils import normalize
-import torch
-    
-    
-
 
 class ImageSample:
     def __init__(self, sample_id, manual_cell_count=None):
@@ -28,7 +22,6 @@ class ImageSample:
             "cyto": None,
             "cyto2": None,
             "cyto3": None,
-            "cellposeSAM": None,
             "watershed": None,
             "StarDist2D": None
         }
@@ -74,42 +67,34 @@ class ImageSample:
             self.masks["StarDist2D"] = safe_read(file)
         elif "cyto" in filename:
             self.masks["cyto"] = safe_read(file)
-    
-    def apply_nuc_pipeline(self, methods=None):
-        """
-        Apply nucleus segmentation pipeline using various methods.
+
+    def apply_nuc_pipeline(self):
+        """Apply nucleus segmentation pipeline using various methods.
         """
         if self.dapi is None:
-            print(f"[WARN] Sample {self.sample_id}: Missing DAPI image; cannot run nucleus segmentation.")
+            print("Missing DAPI image; cannot run nucleus segmentation pipeline.")
             return
 
-        if methods is None:
-            methods = ["cellposeSAM"]
+        # Initialize Cellpose models
+        model_cyto = models.Cellpose(gpu=True, model_type='cyto')
+        model_cyto2 = models.Cellpose(gpu=True, model_type='cyto2')
+        #model_cyto3 = models.Cellpose(gpu=True, model_type='cyto3')
 
-        available_models = {
-            # —— Cellpose SAM ——
-            "cellposeSAM": lambda: models.CellposeModel(gpu=True),
-        }
+        # Run Cellpose models
+        masks_cyto, _, _, _ = model_cyto.eval(self.dapi, diameter=None, channels=[0,0])
+        masks_cyto2, _, _, _ = model_cyto2.eval(self.dapi, diameter=None, channels=[0,0])
+        #masks_cyto3, _, _, _ = model_cyto3.eval(self.dapi, diameter=None, channels=[0,0])
 
-        for method in methods:
-            if method in available_models:
-                try:
-                    model = available_models[method]()
-                    masks, _, _ = model.eval(self.dapi, diameter=None, channels=[0, 0])
-                    self.masks[method] = masks
-                    print(f"[OK] Sample {self.sample_id}: Applied {method}")
-                except Exception as e:
-                    print(f"[ERROR] Sample {self.sample_id}: Failed to apply {method}: {e}")
-        if "watershed" in methods:
-            try:
-                distance = distance_transform_edt(self.dapi > 0)
-                markers = (self.dapi > 0).astype(int)
-                ws_mask = watershed(-distance, markers, mask=self.dapi > 0)
-                self.masks["watershed"] = ws_mask
-                print(f"[OK] Sample {self.sample_id}: Applied watershed segmentation")
-            except Exception as e:
-                print(f"[ERROR] Sample {self.sample_id}: Watershed segmentation failed: {e}")
+        # Store Cellpose results
+        self.masks["cyto"] = masks_cyto
+        self.masks["cyto2"] = masks_cyto2
+        #self.masks["cyto3"] = masks_cyto3
 
+        # Run watershed segmentation
+        distance = distance_transform_edt(self.dapi > 0)
+        markers = ndimage.label(self.dapi > 0)[0]
+        ws_mask = watershed(-distance, markers, mask=self.dapi > 0)
+        self.masks["watershed"] = ws_mask
 
     def get_positive_cyto_pipline(self, methods=["cellpose", "cellpose2chan" , "watershed", "cell_expansion","watershed_only_cyto"]):
         if self.marker is None or self.dapi_multi_mask is None:
@@ -149,15 +134,14 @@ class IfImageDataset:
         self.samples = {}
 
     def load_data(self):
-        # — load images as before —
         image_files = glob.glob(os.path.join(self.image_dir, "*.tif")) + \
                       glob.glob(os.path.join(self.image_dir, "*.tiff")) + \
                       glob.glob(os.path.join(self.image_dir, "*.npy"))
+                      
+        mask_files = glob.glob(os.path.join(self.masks_dir, "*.npy"))
+
         for file in image_files:
             self._process_image_file(file)
-
-        # — now load masks from nested folders: mask/<sample_id>/*.npy —
-        mask_files = glob.glob(os.path.join(self.masks_dir, "*", "*.npy"))
         for file in mask_files:
             self._process_mask_file(file)
 
@@ -217,22 +201,17 @@ class IfImageDataset:
         self.samples[sample_id].celltype = celltype
         self.samples[sample_id].add_image_file(file)
 
-    
     def _process_mask_file(self, file):
-        # file is like: .../masks_dir/1234/cyto.npy
-        sample_id = os.path.basename(os.path.dirname(file))
-        mask_name = os.path.splitext(os.path.basename(file))[0]
-
-        # ensure the sample exists
+        filename = os.path.basename(file)
+        name, ext = os.path.splitext(filename)
+        parts = name.split("_")
+        if len(parts) < 2:
+            return
+        sample_id = parts[0]
         if sample_id not in self.samples:
-            manual = self.manual_cell_counts.get(sample_id)
-            self.samples[sample_id] = ImageSample(sample_id, manual)
-
-        # read the array
-        arr = safe_read(file)
-
-        # assign into the .masks dict (or create it if you added new types)
-        self.samples[sample_id].masks[mask_name] = arr
+            manual_count = self.manual_cell_counts.get(sample_id)
+            self.samples[sample_id] = ImageSample(sample_id, manual_count)
+        self.samples[sample_id].add_mask_file(file)
 
     def __getitem__(self, sample_id):
         """Retrieve a sample by its ID."""

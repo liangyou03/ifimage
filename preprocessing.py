@@ -7,7 +7,6 @@ from roifile import ImagejRoi
 from skimage.draw import polygon
 import matplotlib.pyplot as plt
 
-
 import os
 import zipfile
 import re
@@ -642,3 +641,26 @@ def get_raw_from_zip(sample_id: str, zip_path: str):
             raise FileNotFoundError(f"Missing {', '.join(missing)} in '{sample_id}' inside ZIP")
 
         return dapi_stream, marker_stream
+
+
+def collect_ground_truth(src_root, dest_dir, exts=(".npy", ".tiff", ".tif")):
+    """
+    Recursively copy all files ending with exts from src_root into dest_dir.
+    """
+    os.makedirs(dest_dir, exist_ok=True)
+    for root, _, files in os.walk(src_root):
+        for f in files:
+            if f.lower().endswith(exts):
+                src_path = os.path.join(root, f)
+                dst_path = os.path.join(dest_dir, f)
+                # 如果你担心重名被覆盖，可以改成：
+                # rel = os.path.relpath(root, src_root).replace(os.sep, "_")
+                # dst_path = os.path.join(dest_dir, f"{rel}_{f}")
+                shutil.copy2(src_path, dst_path)
+                print(f"📂 Copied {src_path} → {dst_path}")
+
+# if __name__ == "__main__":
+#     src = "/Users/macbookair/Downloads/new524/renamed"
+#     dst = "/Users/macbookair/PycharmProjects/ifimage/Reorgnized Ground Truth"
+#     collect_ground_truth(src, dst)
+#     print("🎉 All done, babe!")
