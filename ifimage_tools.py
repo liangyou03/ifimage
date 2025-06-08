@@ -9,8 +9,9 @@ from stardist.matching import matching
 from stardist.models import StarDist2D
 from csbdeep.utils import normalize
 import torch
-    
-    
+from tqdm.auto import tqdm
+import pandas as pd
+import numpy as np
 
 
 class ImageSample:
@@ -250,7 +251,140 @@ class IfImageDataset:
         sample = self.samples[sample_id]
         print(f"Sample ID: {sample.sample_id}, Cell Type: {sample.celltype}")
         return sample
+    
+    def run_all_nuclei_segmentation(self,output_root):
+        for sample_id, sample in self.samples.items():
+            sample.apply_nuc_pipeline()
+            
+            sample_dir = os.path.join(output_root, sample_id)
+            os.makedirs(sample_dir, exist_ok=True)
+            
+            # 遍历 sample.masks，把不为空的 mask 存成 .npy
+            for mask_name, mask_array in sample.masks.items():
+                if mask_array is None:
+                    continue
+                out_path = os.path.join(sample_dir, f"{mask_name}.npy")
+                np.save(out_path, mask_array)
+                print(f"Saved {mask_name} → {out_path}")
 
+    def evaluate_nuclei(self,
+                        methods=None,
+                        iou_thresholds=np.arange(0.5, 1.0, 0.05)):
+        """
+        Evaluate *nucleus* segmentation for each sample and return a tidy
+        DataFrame of mean precision vs. IoU threshold.
+
+        Parameters
+        ----------
+        methods : list[str] or None
+            The segmentation methods (i.e. keys inside `sample.masks`)
+            you want to evaluate.  If None or empty, all keys found in the
+            first sample's `masks` dict are used.
+        iou_thresholds : array-like of float
+            IoU thresholds at which to compute precision (default 0.50–0.95).
+
+        Returns
+        -------
+        pandas.DataFrame
+            Columns = ['method', 'iou', 'precision'] where precision is the
+            *mean* precision across all samples for that method/threshold.
+        """
+        # Infer methods automatically if the caller didn’t specify any
+        if not methods:
+            first_sample = next(iter(self.samples.values()))
+            methods = list(first_sample.masks.keys())
+
+        # Prepare an accumulator: {method: {thr: [precisions...]}}
+        all_prec = {m: {thr: [] for thr in iou_thresholds} for m in methods}
+
+        for sample_id, sample in tqdm(self.samples.items(), desc="nuclei eval"):
+            gt_mask = sample.dapi_multi_mask           # <-- adjust attribute!
+            if gt_mask is None:
+                print(f"Sample {sample_id} lacks GT nuclei; skipping…")
+                continue
+
+            for method in methods:
+                pred_mask = sample.masks.get(method)
+                if pred_mask is None:
+                    print(f"[{sample_id}] no nuclei mask for '{method}'; skip")
+                    continue
+
+                # Compute precision for every IoU threshold
+                for thr in iou_thresholds:
+                    try:
+                        m = matching(gt_mask, pred_mask, thresh=thr)
+                        all_prec[method][thr].append(m.precision)
+                    except Exception as exc:
+                        print(f"matching() error [{sample_id}/{method}/{thr}]:"
+                              f" {exc}")
+                        all_prec[method][thr].append(0.0)
+
+        # Convert the nested dict into a tidy DataFrame
+        rows = []
+        for method, thr_dict in all_prec.items():
+            for thr, precisions in thr_dict.items():
+                if precisions:                            # avoid divide-by-zero
+                    rows.append(
+                        dict(method=method,
+                             iou=thr,
+                             precision=float(np.mean(precisions))))
+        return pd.DataFrame(rows)
+    
+    def evaluate_cell(self,
+                      methods=None,
+                      iou_thresholds=np.arange(0.5, 1.0, 0.05)):
+        """
+        Same idea as `evaluate_nuclei`, but for *cell-body* segmentation.
+
+        Ground-truth attribute assumed to be `cellbodies_multimask`, and
+        predictions read from `sample.cyto_positive_masks[method]`, which may
+        store either a NumPy array *or* a `.npy` filepath.  Edit these names
+        if your data layout is different.
+        """
+        if not methods:
+            # grab every method key present in the very first sample
+            first_sample = next(iter(self.samples.values()))
+            methods = list(first_sample.cyto_positive_masks.keys())
+
+        all_prec = {m: {thr: [] for thr in iou_thresholds} for m in methods}
+
+        for sample_id, sample in tqdm(self.samples.items(), desc="cell eval"):
+            gt_mask = sample.cellbodies_multimask
+            if gt_mask is None:
+                print(f"Sample {sample_id} lacks GT cell mask; skipping…")
+                continue
+
+            for method in methods:
+                src = sample.cyto_positive_masks.get(method)
+                if src is None:
+                    print(f"[{sample_id}] no cell mask for '{method}'; skip")
+                    continue
+
+                # `src` might be an array *or* a path – handle both
+                try:
+                    pred_mask = src if isinstance(src, np.ndarray) else np.load(src)
+                except Exception as exc:
+                    print(f"Failed to load mask [{sample_id}/{method}]: {exc}")
+                    continue
+
+                for thr in iou_thresholds:
+                    try:
+                        m = matching(gt_mask, pred_mask, thresh=thr)
+                        all_prec[method][thr].append(m.precision)
+                    except Exception as exc:
+                        print(f"matching() error [{sample_id}/{method}/{thr}]: "
+                              f"{exc}")
+                        all_prec[method][thr].append(0.0)
+
+        rows = []
+        for method, thr_dict in all_prec.items():
+            for thr, precisions in thr_dict.items():
+                if precisions:
+                    rows.append(
+                        dict(method=method,
+                             iou=thr,
+                             precision=float(np.mean(precisions))))
+        return pd.DataFrame(rows)
 
 
 

@@ -6,6 +6,19 @@ from imagecodecs.imagecodecs import none_check
 from scipy.ndimage import distance_transform_edt
 from skimage.segmentation import watershed
 from stardist.matching import matching
+from stardist.models import StarDist2D
+from csbdeep.utils import normalize
+
+
+# --- Cellpose monkey-patch: skip size-model download -----------------------
+from cellpose import models as _cp_models
+
+if not getattr(_cp_models, "_size_patch_done", False):
+    # short-circuit the downloader for every run in this process
+    _cp_models.size_model_path = lambda *a, **k: None
+    _cp_models._size_patch_done = True
+# --------------------------------------------------------------------------
+
 
 class ImageSample:
     def __init__(self, sample_id, manual_cell_count=None):
@@ -69,32 +82,42 @@ class ImageSample:
             self.masks["cyto"] = safe_read(file)
 
     def apply_nuc_pipeline(self):
-        """Apply nucleus segmentation pipeline using various methods.
-        """
+        """Apply nucleus segmentation pipeline using various methods."""
         if self.dapi is None:
             print("Missing DAPI image; cannot run nucleus segmentation pipeline.")
             return
 
-        # Initialize Cellpose models
-        model_cyto = models.Cellpose(gpu=True, model_type='cyto')
-        model_cyto2 = models.Cellpose(gpu=True, model_type='cyto2')
-        #model_cyto3 = models.Cellpose(gpu=True, model_type='cyto3')
+        #—— Cellpose 'cyto3' only (you can add back cyto, cyto2 similarly) ——
+        if self.masks.get("cyto3") is None:
+            print("Running Cellpose 'cyto3'…")
+            model_cp = models.Cellpose(gpu=True, model_type='cyto3')
+            masks_cp, *_ = model_cp.eval(self.dapi, diameter=15, channels=[0,0])
+            self.masks["cyto3"] = masks_cp
+        else:
+            print("Skip 'cyto3' (already present)")
 
-        # Run Cellpose models
-        masks_cyto, _, _, _ = model_cyto.eval(self.dapi, diameter=None, channels=[0,0])
-        masks_cyto2, _, _, _ = model_cyto2.eval(self.dapi, diameter=None, channels=[0,0])
-        #masks_cyto3, _, _, _ = model_cyto3.eval(self.dapi, diameter=None, channels=[0,0])
+        # —— StarDist2D ——  
+        # 只在第一次尝试
+        # print("🏃 Running StarDist2D ...")
+        # try:
+        #     sd_model = StarDist2D.from_pretrained("2D_versatile_fluo")
+        #     img_norm = normalize(self.dapi)
+        #     labels_sd, _ = sd_model.predict_instances(img_norm, n_tiles=None)
+        #     self.masks["StarDist2D"] = labels_sd
+        # except Exception as e:
+        #     print(f"⚠️  StarDist2D failed: {e}")
+        #     self.masks["StarDist2D"] = "FAILED"
 
-        # Store Cellpose results
-        self.masks["cyto"] = masks_cyto
-        self.masks["cyto2"] = masks_cyto2
-        #self.masks["cyto3"] = masks_cyto3
 
-        # Run watershed segmentation
-        distance = distance_transform_edt(self.dapi > 0)
-        markers = ndimage.label(self.dapi > 0)[0]
-        ws_mask = watershed(-distance, markers, mask=self.dapi > 0)
-        self.masks["watershed"] = ws_mask
+        # —— Watershed segmentation ——  
+        # if self.masks.get("watershed") is None:
+        #     print("Running watershed…")
+        #     distance = distance_transform_edt(self.dapi > 0)
+        #     markers = ndimage.label(self.dapi > 0)[0]
+        #     ws = watershed(-distance, markers, mask=self.dapi > 0)
+        #     self.masks["watershed"] = ws
+        # else:
+        #     print("Skip 'watershed' (already present)")
 
     def get_positive_cyto_pipline(self, methods=["cellpose", "cellpose2chan" , "watershed", "cell_expansion","watershed_only_cyto"]):
         if self.marker is None or self.dapi_multi_mask is None:
