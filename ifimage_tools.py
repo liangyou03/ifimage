@@ -8,10 +8,11 @@ from skimage.segmentation import watershed
 from stardist.matching import matching
 from stardist.models import StarDist2D
 from csbdeep.utils import normalize
-import torch
 from tqdm.auto import tqdm
 import pandas as pd
 import numpy as np
+from segmentaion import NUC_SEG_METHODS, CYTO_SEG_METHODS
+
 
 
 class ImageSample:
@@ -19,6 +20,8 @@ class ImageSample:
         self.sample_id = sample_id
         self.celltype = None
         self.manual_cell_count = manual_cell_count
+        self.nuc_metadata  = {}   # {method: SegResult}
+        self.cyto_metadata = {}
         self.dapi = None
         self.marker = None
         self.dapi_mask = None
@@ -75,92 +78,110 @@ class ImageSample:
             self.masks["StarDist2D"] = safe_read(file)
         elif "cyto" in filename:
             self.masks["cyto"] = safe_read(file)
-    
+
     def apply_nuc_pipeline(self, methods=None):
-        """
-        Apply nucleus segmentation pipeline using various methods.
-        """
         if self.dapi is None:
-            print(f"[WARN] Sample {self.sample_id}: Missing DAPI image; cannot run nucleus segmentation.")
+            print(f"[{self.sample_id}] no DAPI, skip nuclei")
             return
 
         if methods is None:
-            methods = ["cellposeSAM"]
+            methods = ["cellposeSAM", "watershed"]
 
-        available_models = {
-            # —— Cellpose SAM ——
-            "cellposeSAM": lambda: models.CellposeModel(gpu=True),
-        }
+        for m in methods:
+            if m not in NUC_SEG_METHODS:
+                print(f"[WARN] nuclei method '{m}' not in NUC_SEG_METHODS")
+                continue
 
-        for method in methods:
-            if method in available_models:
-                try:
-                    model = available_models[method]()
-                    masks, _, _ = model.eval(self.dapi, diameter=None, channels=[0, 0])
-                    self.masks[method] = masks
-                    print(f"[OK] Sample {self.sample_id}: Applied {method}")
-                except Exception as e:
-                    print(f"[ERROR] Sample {self.sample_id}: Failed to apply {method}: {e}")
-        if "watershed" in methods:
-            try:
-                distance = distance_transform_edt(self.dapi > 0)
-                markers = (self.dapi > 0).astype(int)
-                ws_mask = watershed(-distance, markers, mask=self.dapi > 0)
-                self.masks["watershed"] = ws_mask
-                print(f"[OK] Sample {self.sample_id}: Applied watershed segmentation")
-            except Exception as e:
-                print(f"[ERROR] Sample {self.sample_id}: Watershed segmentation failed: {e}")
+            res: SegResult = NUC_SEG_METHODS[m](self.dapi)
+            self.nuc_metadata[m] = res
+            self.masks[m] = res.mask        # 兼容你原有的下游代码
 
+    def get_positive_cyto_pipline(
+        self,
+        methods=("cellpose", "cellpose2chan",
+                 "watershed", "cell_expansion", "watershed_only_cyto")):
 
-    def get_positive_cyto_pipline(self, methods=["cellpose", "cellpose2chan" , "watershed", "cell_expansion","watershed_only_cyto"]):
-        if self.marker is None or self.dapi_multi_mask is None:
-            print("Missing marker or dapi_multi_mask; cannot run cytoplasm positive pipeline.")
+        # ------- A. 准备 marker & nucleus mask ----------------------------------
+        if self.marker is None:
+            print(f"[{self.sample_id}] no marker, skip cyto pipeline")
             return
 
-        marker_channel = self.marker[:, :, 0] if self.marker.ndim == 3 else self.marker
-        multi_mask = self.dapi_multi_mask
-        finder = FindMarker(max_expansion=10)
+        marker_ch = self.marker[..., 0] if self.marker.ndim == 3 else self.marker
 
-        if 'watershed' in methods:
-            _, _, _, cyto_mask, predicted_positive_mask_ws = finder.watershed_cellpose_with_dapi(marker_channel, multi_mask)
-            self.cyto_positive_masks["watershed"] = predicted_positive_mask_ws
+        if self.dapi_multi_mask is not None:
+            dapi_multi = self.dapi_multi_mask
+        else:
+            if self.masks.get("cellposeSAM") is None:
+                self.apply_nuc_pipeline(methods=["cellposeSAM"])
+            dapi_multi = self.masks.get("cellposeSAM")
 
-        if 'cell_expansion' in methods or 'cell_expansion' in methods:
-            _, _, _, limited_mask, predicted_positive_mask_ce = finder.cell_expansion(marker_channel, multi_mask)
-            self.cyto_positive_masks["cell_expansion"] = predicted_positive_mask_ce
+            if dapi_multi is None or dapi_multi.max() == 0:
+                print(f"[{self.sample_id}] fallback nucleus mask empty → skip")
+                return
 
-        if "watershed_only_cyto" in methods:
-            _, _, _, _, predicted_positive_mask_ws_only_cyto = finder.watershed_only_cyto(marker_channel, multi_mask)
-            self.cyto_positive_masks["watershed_only_cyto"]=predicted_positive_mask_ws_only_cyto
+        # ------- B. 调用 CYTO_SEG_METHODS ---------------------------------------
+        for m in methods:
+            if m not in CYTO_SEG_METHODS:
+                print(f"[WARN] cyto method '{m}' not in CYTO_SEG_METHODS")
+                continue
 
-        if 'cellpose' in methods:
-            predicted_positive_mask_cp = finder.cellpose_only_cyto(marker_channel, multi_mask)
-            self.cyto_positive_masks["cellpose"] = predicted_positive_mask_cp
+            res: SegResult = CYTO_SEG_METHODS[m](marker_ch, dapi_multi)
+            self.cyto_metadata[m] = res
+            self.cyto_positive_masks[m] = res.mask
 
-        if 'cellpose2chan' in methods:
-            predicted_positive_mask_cp = finder.cellpose2chan(marker_channel, multi_mask)
-            self.cyto_positive_masks["cellpose2chan"] = predicted_positive_mask_cp
 
 
 class IfImageDataset:
-    def __init__(self, image_dir, masks_dir, manual_cell_counts):
-        self.image_dir = image_dir
-        self.masks_dir = masks_dir
-        self.manual_cell_counts = manual_cell_counts
-        self.samples = {}
+    def __init__(self, image_dir, nuclei_masks_dir, cell_masks_dir=None, manual_cell_counts=None):
+        self.image_dir         = image_dir
+        self.nuclei_masks_dir  = nuclei_masks_dir
+        self.cell_masks_dir    = cell_masks_dir
+        self.manual_cell_counts= manual_cell_counts
+        self.samples           = {}
 
     def load_data(self):
-        # — load images as before —
-        image_files = glob.glob(os.path.join(self.image_dir, "*.tif")) + \
-                      glob.glob(os.path.join(self.image_dir, "*.tiff")) + \
-                      glob.glob(os.path.join(self.image_dir, "*.npy"))
-        for file in image_files:
-            self._process_image_file(file)
+        # 1) load raw images
+        image_files = (
+            glob.glob(os.path.join(self.image_dir, "*.tif")) +
+            glob.glob(os.path.join(self.image_dir, "*.tiff")) +
+            glob.glob(os.path.join(self.image_dir, "*.npy"))
+        )
+        for f in image_files:
+            self._process_image_file(f)
 
-        # — now load masks from nested folders: mask/<sample_id>/*.npy —
-        mask_files = glob.glob(os.path.join(self.masks_dir, "*", "*.npy"))
-        for file in mask_files:
-            self._process_mask_file(file)
+        # 2) load **nuclei** masks
+        nuc_files = glob.glob(os.path.join(self.nuclei_masks_dir, "*", "*.npy"))
+        for f in nuc_files:
+            self._process_mask_file(f, target="nuclei")
+
+        # 3) load **cell‐body** masks
+        cell_files = glob.glob(os.path.join(self.cell_masks_dir, "*", "*.npy"))
+        for f in cell_files:
+            self._process_mask_file(f, target="cyto")
+
+    def _process_mask_file(self, file, target="nuclei"):
+        """
+        target="nuclei" → put into sample.masks[...]
+        target="cyto"   → put into sample.cyto_positive_masks[...]
+        """
+        sample_id = os.path.basename(os.path.dirname(file))
+        mask_name = os.path.splitext(os.path.basename(file))[0]
+        arr = safe_read(file)
+
+        # ensure sample exists
+        if sample_id not in self.samples:
+            manual = self.manual_cell_counts.get(sample_id)
+            self.samples[sample_id] = ImageSample(sample_id, manual)
+
+        sample = self.samples[sample_id]
+
+        if target == "nuclei":
+            sample.masks[mask_name] = arr
+        elif target == "cyto":
+            sample.cyto_positive_masks[mask_name] = arr
+        else:
+            raise ValueError(f"Unknown mask target: {target}")
+
 
     def summary(self,table=False):
         print("Total samples:", len(self.samples))
@@ -202,8 +223,6 @@ class IfImageDataset:
                 if "✗" in [has_dapi, has_marker, has_dapi_mask, has_cellbodies]:
                     print(f"{sample_id:<15} {sample.celltype or 'Unknown':<15} {has_dapi:<10} {has_marker:<10} {has_dapi_mask:<15} {has_cellbodies:<15}")
             
-        
-
     def _process_image_file(self, file):
         filename = os.path.basename(file)
         name, ext = os.path.splitext(filename)
@@ -217,24 +236,7 @@ class IfImageDataset:
             self.samples[sample_id] = ImageSample(sample_id, manual_count)
         self.samples[sample_id].celltype = celltype
         self.samples[sample_id].add_image_file(file)
-
-    
-    def _process_mask_file(self, file):
-        # file is like: .../masks_dir/1234/cyto.npy
-        sample_id = os.path.basename(os.path.dirname(file))
-        mask_name = os.path.splitext(os.path.basename(file))[0]
-
-        # ensure the sample exists
-        if sample_id not in self.samples:
-            manual = self.manual_cell_counts.get(sample_id)
-            self.samples[sample_id] = ImageSample(sample_id, manual)
-
-        # read the array
-        arr = safe_read(file)
-
-        # assign into the .masks dict (or create it if you added new types)
-        self.samples[sample_id].masks[mask_name] = arr
-
+        
     def __getitem__(self, sample_id):
         """Retrieve a sample by its ID."""
         if sample_id not in self.samples:
@@ -404,159 +406,6 @@ class Thresholder:
         gmm.fit(intensities.reshape(-1, 1))
         thresholds = np.sort(gmm.means_.ravel())
         return thresholds[0]  # Use the first threshold for binary classification
-
-
-class FindMarker:
-    def __init__(self, max_expansion=10, threshold_method="otsu"):
-        self.max_expansion = max_expansion
-        self.threshold_method = threshold_method
-        self.thresholder = Thresholder()
-
-    def get_average_intensity(self, marker_channel, mask, normalize=False):
-        labels_unique = np.unique(mask)
-        labels_unique = labels_unique[labels_unique != 0]
-        total_marker_intensity = ndimage.sum(marker_channel, labels=mask, index=labels_unique)
-        region_area = ndimage.sum(np.ones_like(marker_channel), labels=mask, index=labels_unique)
-
-        average_marker_intensity = total_marker_intensity / region_area
-
-        if normalize:
-            average_marker_intensity = (average_marker_intensity - average_marker_intensity.min()) / \
-                                      (average_marker_intensity.max() - average_marker_intensity.min())
-        return average_marker_intensity
-
-    def _apply_threshold(self, intensities):
-        """Apply the selected thresholding method."""
-        if self.threshold_method == "otsu":
-            return self.thresholder.otsu_threshold(intensities)
-        elif self.threshold_method == "gmm":
-            return self.thresholder.gmm_threshold(intensities)
-        else:
-            raise ValueError(f"Unsupported thresholding method: {self.threshold_method}")
-
-    def cell_expansion(self, marker_channel, dapi_multi_mask):
-        properties = regionprops(dapi_multi_mask)
-        centroids = np.array([prop.centroid for prop in properties])
-        markers = np.zeros_like(dapi_multi_mask, dtype=int)
-
-        for idx, (y, x) in enumerate(centroids):
-            markers[int(round(y)), int(round(x))] = idx + 1
-
-        distance, (inds_y, inds_x) = distance_transform_edt(markers == 0, return_indices=True)
-        limited_mask = np.zeros_like(dapi_multi_mask, dtype=int)
-        within_limit = distance <= self.max_expansion
-        limited_mask[within_limit] = markers[inds_y[within_limit], inds_x[within_limit]]
-
-        average_marker_intensity = self.get_average_intensity(marker_channel, limited_mask)
-        threshold = self._apply_threshold(average_marker_intensity)
-        labels_unique = np.unique(limited_mask)
-        labels_unique = labels_unique[labels_unique != 0]
-        regions_positive = labels_unique[average_marker_intensity > threshold]
-        predicted_positive_nuclei_mask = np.where(np.isin(limited_mask, regions_positive), limited_mask, 0)
-        total_cell_num = len(labels_unique)
-        marker_cell_num = len(regions_positive)
-        marker_cell_ratio = marker_cell_num / total_cell_num if total_cell_num > 0 else 0
-        return total_cell_num, marker_cell_ratio, marker_cell_num, limited_mask, predicted_positive_nuclei_mask
-
-    def watershed_cellpose_with_dapi(self, marker_channel, dapi_multi_mask):
-        gradient = marker_channel
-        cytoplasm_mask = watershed(gradient, markers=dapi_multi_mask)
-
-        average_marker_intensity = self.get_average_intensity(marker_channel, cytoplasm_mask)
-        threshold = self._apply_threshold(average_marker_intensity)
-        labels_unique = np.unique(cytoplasm_mask)
-        labels_unique = labels_unique[labels_unique != 0]
-        regions_positive = labels_unique[average_marker_intensity > threshold]
-
-        predicted_positive_mask = np.where(np.isin(cytoplasm_mask, regions_positive), cytoplasm_mask, 0)
-        total_cell_num = len(labels_unique)
-        marker_cell_num = len(regions_positive)
-        marker_cell_ratio = marker_cell_num / total_cell_num if total_cell_num > 0 else 0
-
-        return total_cell_num, marker_cell_ratio, marker_cell_num, cytoplasm_mask, predicted_positive_mask
-
-    def cellpose_only_cyto(self, marker_channel, dapi_multi_mask):
-        model = models.Cellpose(model_type='cyto3', gpu=True)
-        masks, flows, styles, diams = model.eval(
-            marker_channel,
-            channels=[0, 0],
-            diameter=None,
-            flow_threshold=0.4,
-            cellprob_threshold=0.0
-        )
-        
-        return masks
-
-    def cellpose2chan(self, marker_channel, dapi_multi_mask):
-        from cellpose import models
-        dapi = marker_channel
-        marker = dapi_multi_mask
-        stacked = np.stack([dapi, marker, np.zeros_like(dapi)], axis=2)
-
-        model = models.Cellpose(model_type='cyto3',gpu=True)
-        cytoplasm_mask, flows, styles, diams = model.eval(
-            stacked,  # must be a list of images
-            channels=[2, 1],
-            diameter=None
-        )
-        average_marker_intensity = self.get_average_intensity(marker_channel, cytoplasm_mask)
-        threshold = self._apply_threshold(average_marker_intensity)
-        labels_unique = np.unique(cytoplasm_mask)
-        labels_unique = labels_unique[labels_unique != 0]
-        regions_positive = labels_unique[average_marker_intensity > threshold]
-
-        predicted_positive_mask = np.where(np.isin(cytoplasm_mask, regions_positive), cytoplasm_mask, 0)
-        total_cell_num = len(labels_unique)
-        marker_cell_num = len(regions_positive)
-        marker_cell_ratio = marker_cell_num / total_cell_num if total_cell_num > 0 else 0
-
-        return predicted_positive_mask
-
-    def watershed_only_cyto(self, marker_channel, dapi_multi_mask=None):
-        from skimage.feature import peak_local_max
-        coordinates = peak_local_max(marker_channel, min_distance=30, threshold_abs=0.3)
-        seeds = np.zeros_like(marker_channel, dtype=bool)
-        seeds[tuple(coordinates.T)] = True
-        seeds_labeled = label(seeds)
-        gradient = marker_channel
-        cytoplasm_mask = watershed(gradient, markers=seeds_labeled)
-        # print(cytoplasm_mask.max())
-        average_marker_intensity = self.get_average_intensity(marker_channel, cytoplasm_mask)
-        threshold = self._apply_threshold(average_marker_intensity)
-        labels_unique = np.unique(cytoplasm_mask)
-        labels_unique = labels_unique[labels_unique != 0]
-        regions_positive = labels_unique[average_marker_intensity > threshold]
-
-        predicted_positive_mask = np.where(np.isin(cytoplasm_mask, regions_positive), cytoplasm_mask, 0)
-        total_cell_num = len(labels_unique)
-        marker_cell_num = len(regions_positive)
-        print(marker_cell_num)
-        marker_cell_ratio = marker_cell_num / total_cell_num if total_cell_num > 0 else 0
-
-        return total_cell_num, marker_cell_ratio, marker_cell_num, cytoplasm_mask, predicted_positive_mask
-
-    def compute_confusion_matrix_stardist(self, cellbodies_mask, predicted_positive_nuclei_mask, iou_threshold=0.01):
-        predicted_positive_nuclei_mask = predicted_positive_nuclei_mask.astype(np.uint32)
-        cellbodies_mask = cellbodies_mask.astype(np.uint32)
-        stats = matching(cellbodies_mask, predicted_positive_nuclei_mask, thresh=iou_threshold)
-        return stats
-
-
-
-
-import matplotlib.pyplot as plt
-def visualize_multimask(multi_mask, ax):
-    unique_masks = np.unique(multi_mask)
-    unique_masks = unique_masks[unique_masks != 0]
-    num_masks = len(unique_masks)
-    cmap = plt.get_cmap('gist_ncar', num_masks)
-    colored_mask = np.ones((*multi_mask.shape, 3))
-    for i, mask_id in enumerate(unique_masks):
-        color = cmap(i)[:3]
-        colored_mask[multi_mask == mask_id] = color
-    ax.imshow(colored_mask)
-    ax.set_xticks([])
-    ax.set_yticks([])
 
 
 import matplotlib.patches as mpatches

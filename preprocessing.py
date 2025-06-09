@@ -19,7 +19,7 @@ from skimage.draw import polygon
 # batch_process_zip_rois->batch_rename
 
 class SamplePreprocessor:
-    def __init__(self, raw_data_dir, output_dir, width=1388, height=1024):
+    def __init__(self, raw_data_dir, output_dir, width=1388, height=1040):
         self.raw_data_dir = raw_data_dir
         self.output_dir = output_dir
         self.width = width
