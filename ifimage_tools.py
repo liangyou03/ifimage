@@ -24,9 +24,9 @@ class ImageSample:
         self.cyto_metadata = {}
         self.dapi = None
         self.marker = None
-        self.dapi_mask = None
+        self.dapi_mask = None #legacy
         self.dapi_multi_mask = None
-        self.cellbodies_mask = None
+        self.cellbodies_mask = None #legacy
         self.cellbodies_multimask = None
         self.masks = {
             "cyto": None,
