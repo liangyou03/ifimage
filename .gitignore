@@ -7,6 +7,9 @@
 # ── 允许所有子目录中的 .py 和 .ipynb 文件 ───
 !**/*.py
 !**/*.ipynb
+!**/*.md
+
+Cell-Segmentation-Benchmark-master/*
 
 # ── 确保 .gitignore 被追踪 ───────────
 !.gitignore

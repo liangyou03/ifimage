@@ -393,13 +393,6 @@ def batch_process_zip_rois(folders, width=1388, height=1024):
                     else:
                         print(f"保存二值mask失败 {zip_path}")
                         
-import os
-import re
-import shutil
-
-import os
-import re
-import shutil
 
 
 import os

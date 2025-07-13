@@ -132,7 +132,7 @@ class ImageSample:
 
 
 class IfImageDataset:
-    def __init__(self, image_dir, nuclei_masks_dir, cell_masks_dir=None, manual_cell_counts=None):
+    def __init__(self, image_dir, nuclei_masks_dir, cell_masks_dir=None, manual_cell_counts={}):
         self.image_dir         = image_dir
         self.nuclei_masks_dir  = nuclei_masks_dir
         self.cell_masks_dir    = cell_masks_dir
@@ -291,45 +291,33 @@ class IfImageDataset:
             Columns = ['method', 'iou', 'precision'] where precision is the
             *mean* precision across all samples for that method/threshold.
         """
-        # Infer methods automatically if the caller didn’t specify any
-        if not methods:
-            first_sample = next(iter(self.samples.values()))
-            methods = list(first_sample.masks.keys())
-
-        # Prepare an accumulator: {method: {thr: [precisions...]}}
-        all_prec = {m: {thr: [] for thr in iou_thresholds} for m in methods}
-
+        # Gather per-sample, per-method precision at each IoU threshold
+        rows = []
         for sample_id, sample in tqdm(self.samples.items(), desc="nuclei eval"):
-            gt_mask = sample.dapi_multi_mask           # <-- adjust attribute!
+            gt_mask = sample.dapi_multi_mask
             if gt_mask is None:
-                print(f"Sample {sample_id} lacks GT nuclei; skipping…")
+                print(f"[{sample_id}] lacks GT nuclei; skipping…")
                 continue
-
-            for method in methods:
+            celltype = sample.celltype or ""
+            for method in methods or list(sample.masks.keys()):
                 pred_mask = sample.masks.get(method)
                 if pred_mask is None:
                     print(f"[{sample_id}] no nuclei mask for '{method}'; skip")
                     continue
-
-                # Compute precision for every IoU threshold
                 for thr in iou_thresholds:
                     try:
                         m = matching(gt_mask, pred_mask, thresh=thr)
-                        all_prec[method][thr].append(m.precision)
+                        precision = m.precision
                     except Exception as exc:
-                        print(f"matching() error [{sample_id}/{method}/{thr}]:"
-                              f" {exc}")
-                        all_prec[method][thr].append(0.0)
-
-        # Convert the nested dict into a tidy DataFrame
-        rows = []
-        for method, thr_dict in all_prec.items():
-            for thr, precisions in thr_dict.items():
-                if precisions:                            # avoid divide-by-zero
-                    rows.append(
-                        dict(method=method,
-                             iou=thr,
-                             precision=float(np.mean(precisions))))
+                        print(f"matching() error [{sample_id}/{method}/{thr}]: {exc}")
+                        precision = 0.0
+                    rows.append({
+                        "sample_id": sample_id,
+                        "celltype": celltype,
+                        "method": method,
+                        "iou": thr,
+                        "precision": float(precision)
+                    })
         return pd.DataFrame(rows)
     
     def evaluate_cell(self,
@@ -343,49 +331,37 @@ class IfImageDataset:
         store either a NumPy array *or* a `.npy` filepath.  Edit these names
         if your data layout is different.
         """
-        if not methods:
-            # grab every method key present in the very first sample
-            first_sample = next(iter(self.samples.values()))
-            methods = list(first_sample.cyto_positive_masks.keys())
-
-        all_prec = {m: {thr: [] for thr in iou_thresholds} for m in methods}
-
+        rows = []
         for sample_id, sample in tqdm(self.samples.items(), desc="cell eval"):
             gt_mask = sample.cellbodies_multimask
             if gt_mask is None:
-                print(f"Sample {sample_id} lacks GT cell mask; skipping…")
+                print(f"[{sample_id}] lacks GT cell mask; skipping…")
                 continue
-
-            for method in methods:
+            celltype = sample.celltype or ""
+            for method in methods or list(sample.cyto_positive_masks.keys()):
                 src = sample.cyto_positive_masks.get(method)
                 if src is None:
                     print(f"[{sample_id}] no cell mask for '{method}'; skip")
                     continue
-
-                # `src` might be an array *or* a path – handle both
                 try:
                     pred_mask = src if isinstance(src, np.ndarray) else np.load(src)
                 except Exception as exc:
-                    print(f"Failed to load mask [{sample_id}/{method}]: {exc}")
+                    print(f"[{sample_id}/{method}] load error: {exc}")
                     continue
-
                 for thr in iou_thresholds:
                     try:
                         m = matching(gt_mask, pred_mask, thresh=thr)
-                        all_prec[method][thr].append(m.precision)
+                        precision = m.precision
                     except Exception as exc:
-                        print(f"matching() error [{sample_id}/{method}/{thr}]: "
-                              f"{exc}")
-                        all_prec[method][thr].append(0.0)
-
-        rows = []
-        for method, thr_dict in all_prec.items():
-            for thr, precisions in thr_dict.items():
-                if precisions:
-                    rows.append(
-                        dict(method=method,
-                             iou=thr,
-                             precision=float(np.mean(precisions))))
+                        print(f"matching() error [{sample_id}/{method}/{thr}]: {exc}")
+                        precision = 0.0
+                    rows.append({
+                        "sample_id": sample_id,
+                        "celltype": celltype,
+                        "method": method,
+                        "iou": thr,
+                        "precision": float(precision)
+                    })
         return pd.DataFrame(rows)
 
 
