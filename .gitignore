@@ -4,12 +4,19 @@
 # ── 允许 Git 递归进入所有文件夹 ────
 !*/
 
+
+
 # ── 允许所有子目录中的 .py 和 .ipynb 文件 ───
 !**/*.py
 !**/*.ipynb
 !**/*.md
+!**/*.bash
+!**/*.sh
+!**/*.txt
 
 Cell-Segmentation-Benchmark-master/*
+Cell-Segmentation-Benchmark/*
 
 # ── 确保 .gitignore 被追踪 ───────────
 !.gitignore
+
