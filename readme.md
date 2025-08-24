@@ -1,3 +1,40 @@
+# Header
+
+data is in 00_dataset right now
+
+looks like this:
+gfap_6390_cellbodies.npy       -> marker mask manual scribble
+gfap_6390_dapimultimask.npy    -> dapi mask manual scribble
+gfap_6390_marker.tiff -> raw marker chan
+gfap_6390.tiff -> raw dapi chan
+
+## AUG 23
+### big updates
+algorithms in seperate env and seperate folders
+and in every folder there is env.yml env info
+utils.py for dataclass and dataset class
+pre_cyto & pre_nuc as named
+
+### Update logic of segmentation
+Expected to test 10+ algorithms
+make some folders in ifimage -> each correspond a environment
+
+
+
+### update the dataset with previous lack image
+move the data directory to /liy121/ifimage/images
+this incluede the marker channel of the following image
+neun_1120
+neun_1360
+neun_1492
+neun_1534
+neun_2144
+neun_2322
+neun_2529
+neun_2783
+
+
+
 ## AUG 17
 Slightly improve the env for mmdetection and successfully use swin-t
 first transform data into
