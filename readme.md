@@ -8,6 +8,12 @@ gfap_6390_dapimultimask.npy    -> dapi mask manual scribble
 gfap_6390_marker.tiff -> raw marker chan
 gfap_6390.tiff -> raw dapi chan
 
+## AUG 25
+Set up the environment of ifimage_cellsam and manage to run cellsam -> 32gb OOM 
+Write a slurm file /liy121/ifimage/03_cellsam_benchmark/run_cellsam_nuc.slurm
+
+
+
 ## AUG 23
 ### big updates
 algorithms in seperate env and seperate folders

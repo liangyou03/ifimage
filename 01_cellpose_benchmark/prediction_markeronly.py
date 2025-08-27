@@ -12,7 +12,7 @@ from utils import SampleDataset, ensure_dir  # pure data utils
 
 # ---- config ----
 DATA_DIR   = Path("/ihome/jbwang/liy121/ifimage/00_dataset")
-OUTPUT_DIR = Path("outputs/pred_mask")
+OUTPUT_DIR = Path("outputs/marker_only")
 
 DIAMETER = None
 FLOW_THRESHOLD = 0.4
@@ -25,7 +25,7 @@ def use_gpu() -> bool:
         return False
 
 def run_cpsam_single(model_obj, img_hw_c: np.ndarray) -> np.ndarray:
-    """Run CP-SAM on one HxWxC image (C=2 here) → int32 label mask."""
+    """Run CP-SAM on one HxWxC image (C=1 here) → int32 label mask."""
     masks, _, _ = model_obj.eval(
         [img_hw_c],
         diameter=DIAMETER,
@@ -38,7 +38,7 @@ def run_cpsam_single(model_obj, img_hw_c: np.ndarray) -> np.ndarray:
     return masks[0].astype(np.int32, copy=False)
 
 def main():
-    print("== Cytoplasm prediction (DAPI + marker) ==")
+    print("== Cytoplasm prediction (Marker only) ==")
     print(f"DATA_DIR   : {DATA_DIR.resolve()}")
     print(f"OUTPUT_DIR : {OUTPUT_DIR.resolve()}")
     ensure_dir(OUTPUT_DIR)
@@ -58,10 +58,10 @@ def main():
                 n_skip += 1
                 print(f"[SKIP] {s.base} (no marker)")
                 continue
-            img2c = s.two_channel_input()         # HxWx2, [MARKER, DAPI]
-            mask = run_cpsam_single(model, img2c)
+            marker = s.cell_chan         # HxWx2, [MARKER, DAPI]
+            mask = run_cpsam_single(model, marker)
             s.predicted_cell = mask
-            outp = OUTPUT_DIR / f"{s.base}_pred_cyto.npy"
+            outp = OUTPUT_DIR / f"{s.base}_pred_marker_only.npy"
             np.save(outp, mask)
             n_ok += 1
             print(f"[OK] {s.base} -> {outp.name} (labels: {int(mask.max())})")
