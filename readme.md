@@ -8,6 +8,35 @@ gfap_6390_dapimultimask.npy    -> dapi mask manual scribble
 gfap_6390_marker.tiff -> raw marker chan
 gfap_6390.tiff -> raw dapi chan
 
+Every image is 1388 * 1040
+
+
+
+
+
+
+
+
+## AUG 30
+mesmer env is same as cellsam
+finish prediction of mesmer and stardist
+i think i'll use CellViT in cellposesam env cellvit is extremely hard to implement
+
+
+pecam_15971 size
+pecam_15972 size issue
+15973 too few
+
+oval shape:
+4201
+8265
+1120
+2529
+i edit them into _ovaldapimultimask to give better results
+
+
+
+
 ## AUG 25
 Set up the environment of ifimage_cellsam and manage to run cellsam -> 32gb OOM 
 Write a slurm file /liy121/ifimage/03_cellsam_benchmark/run_cellsam_nuc.slurm

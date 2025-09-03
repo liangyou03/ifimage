@@ -12,7 +12,7 @@ from utils import SampleDataset, ensure_dir  # pure data utils
 
 # ---- config ----
 DATA_DIR   = Path("/ihome/jbwang/liy121/ifimage/00_dataset")
-OUTPUT_DIR = Path("outputs/pred_mask")
+OUTPUT_DIR = Path("cyto_prediction")
 
 DIAMETER = None
 FLOW_THRESHOLD = 0.4
