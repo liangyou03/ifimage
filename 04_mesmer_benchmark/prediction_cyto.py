@@ -9,22 +9,25 @@ from pathlib import Path
 import numpy as np
 import gc
 
+# 🔁 用 Mesmer 替换 CellSAM
 from deepcell.applications import Mesmer
 
 from utils import SampleDataset, ensure_dir
 
 # ---- config ----
 DATA_DIR        = Path("/ihome/jbwang/liy121/ifimage/00_dataset")
-OUT_DIR_CELL    = Path("cyto_prediction")
+OUT_DIR_CELL    = Path("cyto_prediction")  # 输出细胞分割
 
 # Mesmer knobs
 IMAGE_MPP    = None
-COMPARTMENT  = "whole-cell" 
+COMPARTMENT  = "whole-cell"
 
+# 初始化一次，避免重复加载权重
 APP = Mesmer()
 
 
 def _to_float01(x: np.ndarray) -> np.ndarray:
+    """简单归一化到 [0,1]（避免尺度差异影响推理）；0 图直接返回 0。"""
     x = x.astype(np.float32, copy=False)
     vmax = float(x.max())
     if vmax > 0:
@@ -34,10 +37,11 @@ def _to_float01(x: np.ndarray) -> np.ndarray:
 
 def _make_two_channel_input(dapi: np.ndarray, cyto: np.ndarray) -> np.ndarray:
     """
-    Make input for Mesmer: (1, H, W, 2) float32 in [0,1], channels = [DAPI, marker].
+    组装为 Mesmer 需要的 (1, H, W, 2)；通道顺序 [DAPI, MARKER]。
+    输入 dapi, cyto 都应为 2D（HxW），尺寸一致。
     """
-    assert dapi.ndim == 2 and cyto.ndim == 2
-    assert dapi.shape == cyto.shape
+    assert dapi.ndim == 2 and cyto.ndim == 2, "dapi 与 cyto 必须是 2D 灰度图"
+    assert dapi.shape == cyto.shape, "DAPI 与 marker 尺寸必须一致"
     d = _to_float01(dapi)
     m = _to_float01(cyto)
     X = np.stack([d, m], axis=-1)[None, ...]  # (1, H, W, 2)
@@ -79,6 +83,7 @@ def main():
     n_ok, n_skip = 0, 0
     for s in ds:
         try:
+            # 需提供 s.nuc_chan 与 s.cell_chan（均为 2D），与原脚本一致
             s.load_images()
             if getattr(s, "cell_chan", None) is None or getattr(s, "nuc_chan", None) is None:
                 n_skip += 1
@@ -98,6 +103,7 @@ def main():
         except Exception as e:
             print(f"[FAIL] {s.base}: {e}")
 
+        # 及时释放，防止累计内存
         try:
             s.nuc_chan = None; s.cell_chan = None
         except Exception:

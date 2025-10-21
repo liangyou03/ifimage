@@ -12,7 +12,7 @@ from utils import SampleDataset, ensure_dir  # NO model logic inside utils
 
 # ---- config (no CLI) ----
 DATA_DIR   = Path("/ihome/jbwang/liy121/ifimage/00_dataset")
-OUTPUT_DIR = Path("nuc")
+OUTPUT_DIR = Path("nuclei_prediction")
 
 # CP-SAM knobs
 DIAMETER = None
@@ -23,7 +23,7 @@ CELLPROB_THRESHOLD = 0.0
 def run_cellsam_single(img2d: np.ndarray) -> np.ndarray:
     """Run CP-SAM on a single 2D grayscale image → int32 label mask."""
     masks, _, _ = segment_cellular_image(img2d, device='cuda')
-    return masks[0].astype(np.int32, copy=False)
+    return masks.astype(np.int32, copy=False)
 
 def main():
     print("== Nuclei prediction (DAPI) ==")
@@ -40,7 +40,7 @@ def main():
             s.load_images()                       # fills s.nuc_chan (and s.cell_chan if exists)
             mask = run_cellsam_single(s.nuc_chan)
             s.predicted_nuc = mask               # attach result on the object
-            outp = OUTPUT_DIR / f"{s.base}_pred_nuclei.npy"
+            outp = OUTPUT_DIR / f"{s.base}.npy"
             np.save(outp, mask)
             n_ok += 1
             print(f"[OK] {s.base} -> {outp.name} (labels: {int(mask.max())})")
@@ -51,3 +51,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     

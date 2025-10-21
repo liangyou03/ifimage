@@ -1,26 +1,20 @@
 #!/usr/bin/env python3
 """
+use env deepcell_retinamask
 prediction_nuclei_mesmer.py — NUCLEI segmentation with Mesmer (DAPI only).
-Minimal changes from CellSAM: swap model, stack a zero membrane channel.
+
 """
 
 from pathlib import Path
 import numpy as np
-
-# ✨ 替换为 Mesmer
 from deepcell.applications import Mesmer
-
-from utils import SampleDataset, ensure_dir  # NO model logic inside utils
-
-# ---- config (no CLI) ----
+from utils import SampleDataset, ensure_dir
 DATA_DIR   = Path("/ihome/jbwang/liy121/ifimage/00_dataset")
-OUTPUT_DIR = Path("nuiclei_prediction")
+OUTPUT_DIR = Path("nuclei_prediction")
 
-# Mesmer knobs
 IMAGE_MPP = None
 COMPARTMENT = "nuclear"
-
-APP = Mesmer() 
+APP = Mesmer()
 
 def run_mesmer_single(img2d: np.ndarray) -> np.ndarray:
     """Run Mesmer on a single 2D nuclear image → int32 label mask."""

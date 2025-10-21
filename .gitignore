@@ -13,6 +13,7 @@
 !**/*.bash
 !**/*.sh
 !**/*.txt
+!**/*.yml
 
 Cell-Segmentation-Benchmark-master/*
 Cell-Segmentation-Benchmark/*

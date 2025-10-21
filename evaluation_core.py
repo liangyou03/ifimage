@@ -1,39 +1,44 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-evaluation_core.py  (StarDist-backed)
-
-Key changes:
-- Average Precision (AP) at multiple IoU thresholds is computed via
-  `stardist.matching.matching(...)` when available (fast and standard).
-- Fallback to the previous Hungarian implementation if StarDist is not installed.
-- Robust handling when no GT/pred pairs are matched (no KeyError).
-- Retains AJI and boundary metrics.
-
-Dependencies: numpy, scipy, pandas, tifffile
-Optional: stardist
-"""
-
 from __future__ import annotations
+"""
+evaluation_core.py  (StarDist-only, parallel + autosave)
+
+- StarDist matching for AP only (no fallback).
+- ProcessPool parallelism at directory level.
+- Saves per-image and summary CSVs per algorithm and global ALL tables.
+- Correct cell counting via unique labels > 0.
+
+Dependencies: numpy, scipy, pandas, tifffile, stardist
+"""
+
+import os
+import time
+import warnings
 from dataclasses import dataclass, field
+from datetime import datetime
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
-import warnings
 
 import numpy as np
 import pandas as pd
 import tifffile as tiff
 from scipy import ndimage as ndi
-from scipy.optimize import linear_sum_assignment
 
-# Optional StarDist backend
+try:
+    from tqdm import tqdm  # optional
+except Exception:
+    tqdm = None
+
+# Require StarDist
 try:
     from stardist.matching import matching as sd_matching
-    _SD_AVAILABLE = True
-    print("Using StarDist for Average Precision computation.")
-except Exception:
-    _SD_AVAILABLE = False
-    print("StarDist not available; falling back to Hungarian method for Average Precision.")
+except Exception as e:
+    raise ImportError(
+        f"[FATAL] StarDist 'matching' unavailable: {e}\n"
+        "Install it first: pip install stardist csbdeep"
+    )
 
 
 # --------------------------- Configuration ---------------------------
@@ -47,9 +52,7 @@ class EvalConfig:
     gt_strip: List[str] = field(default_factory=lambda: [
         "_cellbodies", "_dapimultimask", "_gt", "_GT"
     ])
-    pred_strip: Dict[str, List[str]] = field(default_factory=lambda: {
-        # Example per algorithm: {"cyto": ["_pred_cyto"], "nuc": ["_pred_nuc"]}
-    })
+    pred_strip: Dict[str, List[str]] = field(default_factory=dict)
     ap_thresholds: Iterable[float] = (0.5, 0.75, 0.9)
     boundary_scales: Iterable[float] = (0.5, 1.0, 2.0)  # fraction of median diameter for tolerance radius
 
@@ -103,6 +106,7 @@ def _pair_by_base(
 
     missing_pred = sorted(set(gt_map) - set(pr_map))
     missing_gt = sorted(set(pr_map) - set(gt_map))
+    print(f"Now Evaluating {pred_dir}")
     if missing_pred:
         warnings.warn(f"{pred_dir.name}: {len(missing_pred)} GT files had no prediction (e.g., {missing_pred[:3]}).")
     if missing_gt:
@@ -183,13 +187,10 @@ def aji(true: np.ndarray, pred: np.ndarray) -> float:
 
 def _sd_to_dict(m):
     """Normalize StarDist Matching object across versions."""
-    # newish versions: namedtuple-like with _asdict()
     if hasattr(m, "_asdict"):
         return m._asdict()
-    # some versions expose to_dict()
     if hasattr(m, "to_dict"):
         return m.to_dict()
-    # last resort: pull common attributes directly
     keys = ["tp", "fp", "fn", "precision", "recall", "f1",
             "n_true", "n_pred", "thresh", "criterion",
             "mean_true_score", "mean_matched_score", "panoptic_quality"]
@@ -199,8 +200,9 @@ def _sd_to_dict(m):
             d[k] = getattr(m, k)
     return d
 
-def _average_precision_stardist(true: np.ndarray, pred: np.ndarray, thresholds):
-    """AP via StarDist matching backend (robust across versions)."""
+
+def average_precision(true: np.ndarray, pred: np.ndarray, thresholds=(0.5, 0.75, 0.9)):
+    """AP from StarDist matching at given IoU thresholds."""
     T = len(thresholds)
     ap = np.zeros((T,), np.float32)
     tp = np.zeros((T,), np.int32)
@@ -216,41 +218,6 @@ def _average_precision_stardist(true: np.ndarray, pred: np.ndarray, thresholds):
         ap[k] = float(tp[k] / denom) if denom > 0 else 0.0
     return ap, tp, fp, fn
 
-
-
-def _average_precision_hungarian(true: np.ndarray, pred: np.ndarray, thresholds) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Previous implementation using Hungarian assignment."""
-    iou = iou_matrix(true, pred)[1:, 1:]
-    n_true, n_pred = iou.shape
-    T = len(thresholds)
-    ap = np.zeros((T,), np.float32)
-    tp = np.zeros((T,), np.int32)
-    fp = np.zeros((T,), np.int32)
-    fn = np.zeros((T,), np.int32)
-    for k, th in enumerate(thresholds):
-        if n_true == 0 and n_pred == 0:
-            ap[k] = 1.0; tp[k] = fp[k] = fn[k] = 0; continue
-        if n_true == 0:
-            ap[k] = 0.0; tp[k] = 0; fp[k] = n_pred; fn[k] = 0; continue
-        if n_pred == 0:
-            ap[k] = 0.0; tp[k] = 0; fp[k] = 0; fn[k] = n_true; continue
-        n_min = min(n_true, n_pred)
-        cost = -(iou >= th).astype(float) - iou / (2.0 * n_min)
-        ti, pi = linear_sum_assignment(cost)
-        matched = iou[ti, pi] >= th
-        tp[k] = int(matched.sum())
-        fp[k] = int(n_pred - tp[k])
-        fn[k] = int(n_true - tp[k])
-        denom = tp[k] + fp[k] + fn[k]
-        ap[k] = float(tp[k] / denom) if denom > 0 else 0.0
-    return ap, tp, fp, fn
-
-
-def average_precision(true: np.ndarray, pred: np.ndarray, thresholds=(0.5, 0.75, 0.9)) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Dispatch AP to StarDist backend if available; otherwise fallback to Hungarian."""
-    if _SD_AVAILABLE:
-        return _average_precision_stardist(true, pred, thresholds)
-    return _average_precision_hungarian(true, pred, thresholds)
 
 
 # --------------------------- Boundary metrics ---------------------------
@@ -317,15 +284,21 @@ def eval_one_pair(
     pr = _read_mask_any(pred_path)
     gt, pr = _align_shapes(gt, pr)
 
+    # Correct counts: number of unique labels > 0
+    n_true = int(np.count_nonzero(np.unique(gt) > 0))
+    n_pred = int(np.count_nonzero(np.unique(pr) > 0))
+
     aji_val = aji(gt, pr)
     ap, tp, fp, fn = average_precision(gt, pr, thresholds=ap_thresholds)
     bp, br, bf = boundary_scores(gt, pr, scales=boundary_scales)
     best_idx = int(np.argmax(bf))
+    map_val = float(np.mean(ap))  # mAP across all IoU thresholds
 
     out = {
-        "n_true": int(gt.max()),
-        "n_pred": int(pr.max()),
+        "n_true": n_true,
+        "n_pred": n_pred,
         "AJI": float(aji_val),
+        "mAP": map_val,
         **{f"AP@{t:.2f}": float(v) for t, v in zip(ap_thresholds, ap)},
         **{f"TP@{t:.2f}": int(v) for t, v in zip(ap_thresholds, tp)},
         **{f"FP@{t:.2f}": int(v) for t, v in zip(ap_thresholds, fp)},
@@ -337,6 +310,16 @@ def eval_one_pair(
         "BF_best_scale": float(list(boundary_scales)[best_idx]),
     }
     return out
+
+
+# --------------------------- Parallel task helper ---------------------------
+
+def _eval_task(args) -> dict:
+    """Top-level picklable task for ProcessPoolExecutor."""
+    base, g, p, ap_thresholds, boundary_scales, algo_name = args
+    res = eval_one_pair(g, p, ap_thresholds=ap_thresholds, boundary_scales=boundary_scales)
+    res.update({"base": base, "algorithm": algo_name})
+    return res
 
 
 # --------------------------- Directory-level evaluation ---------------------------
@@ -351,36 +334,88 @@ def evaluate_dir(
     pred_strip: List[str] | None = None,
     ap_thresholds=(0.5, 0.75, 0.9),
     boundary_scales=(0.5, 1.0, 2.0),
+    max_workers: int | None = None,
+    save_dir: Path | None = None,
+    run_id: str | None = None,
+    verbose: bool = True,
 ):
-    """Evaluate all paired images for one algorithm directory.
-    Returns (per_image_df, summary_df[one row for this algorithm])."""
+    """Evaluate all paired images for one algorithm directory."""
     gt_strip = gt_strip or ["_cellbodies", "_dapimultimask", "_gt", "_GT"]
     pred_strip = pred_strip or ["_pred_cyto", "_pred_nuc", "_pred", "_refined"]
 
     pairs = _pair_by_base(gt_dir, pred_dir, gt_glob, pred_glob, gt_strip, pred_strip)
 
-    rows = []
-    for base, g, p in pairs:
-        res = eval_one_pair(g, p, ap_thresholds=ap_thresholds, boundary_scales=boundary_scales)
-        res.update({"base": base, "algorithm": algo_name})
-        rows.append(res)
+    if not pairs:
+        per_img = pd.DataFrame()
+        summ = pd.DataFrame([{"algorithm": algo_name, "note": "no matched pairs"}])
+        if save_dir:
+            save_dir.mkdir(parents=True, exist_ok=True)
+            rid = run_id or datetime.now().strftime("%Y%m%d-%H%M%S")
+            summ.to_csv(save_dir / f"{algo_name}__{rid}__summary.csv", index=False)
+        return per_img, summ
+
+    job_args = [(base, g, p, tuple(ap_thresholds), tuple(boundary_scales), algo_name) for base, g, p in pairs]
+
+    rows: List[dict] = []
+    workers = max_workers or max(1, (os.cpu_count() or 1))
+
+    if verbose:
+        print(f"[eval] {algo_name}: {len(job_args)} image pairs | workers={workers}")
+    t0 = time.perf_counter()
+
+    with ProcessPoolExecutor(max_workers=workers) as ex:
+        futs = [ex.submit(_eval_task, a) for a in job_args]
+        if verbose and tqdm is not None:
+            bar = tqdm(total=len(job_args), desc=f"{algo_name}", unit="img", dynamic_ncols=True)
+            for f in as_completed(futs):
+                rows.append(f.result())
+                bar.update(1)
+            bar.close()
+        else:
+            n_done = 0
+            for f in as_completed(futs):
+                rows.append(f.result())
+                n_done += 1
+                if verbose and (n_done % 20 == 0 or n_done == len(job_args)):
+                    print(f"[eval] {algo_name}: {n_done}/{len(job_args)} done")
+
+    if verbose:
+        dt = time.perf_counter() - t0
+        print(f"[eval] {algo_name}: finished in {dt:.2f}s")
 
     df = pd.DataFrame(rows)
-    if df.empty:
-        # Return empty per-image table and a minimal summary row
-        return df, pd.DataFrame([{"algorithm": algo_name, "note": "no matched pairs"}])
-
     per_img = df.sort_values(["algorithm", "base"]).reset_index(drop=True)
-    metrics_cols = [c for c in per_img.columns if c not in ("base", "algorithm")]
-    summary = per_img.groupby("algorithm")[metrics_cols].mean().reset_index()
-    return per_img, summary
+
+    if per_img.empty:
+        summ = pd.DataFrame([{"algorithm": algo_name, "note": "no matched pairs"}])
+    else:
+        metrics_cols = [c for c in per_img.columns if c not in ("base", "algorithm")]
+        summ = per_img.groupby("algorithm")[metrics_cols].mean().reset_index()
+
+    if save_dir:
+        save_dir.mkdir(parents=True, exist_ok=True)
+        rid = run_id or datetime.now().strftime("%Y%m%d-%H%M%S")
+        per_img.to_csv(save_dir / f"{algo_name}__{rid}__per_image.csv", index=False)
+        summ.to_csv(save_dir / f"{algo_name}__{rid}__summary.csv", index=False)
+
+    return per_img, summ
 
 
-def evaluate_all(cfg: EvalConfig):
-    """Evaluate multiple algorithms as specified in EvalConfig.
-    Returns (per_image_df, summary_df)."""
-    all_per = []
-    all_sum = []
+def evaluate_all(
+    cfg: EvalConfig,
+    max_workers: int | None = None,
+    out_dir: Path | None = None,
+    run_id: str | None = None,
+    verbose: bool = True,
+):
+    """Evaluate multiple algorithms as specified in EvalConfig."""
+    rid = run_id or datetime.now().strftime("%Y%m%d-%H%M%S")
+    all_per: List[pd.DataFrame] = []
+    all_sum: List[pd.DataFrame] = []
+
+    if verbose:
+        print(f"[eval] starting ALL: {len(cfg.pred_dirs)} algorithms")
+
     for algo, pdir in cfg.pred_dirs.items():
         strips = cfg.pred_strip.get(algo, ["_pred_cyto", "_pred_nuc", "_pred", "_refined"])
         per_img, summ = evaluate_dir(
@@ -393,10 +428,23 @@ def evaluate_all(cfg: EvalConfig):
             pred_strip=strips,
             ap_thresholds=tuple(cfg.ap_thresholds),
             boundary_scales=tuple(cfg.boundary_scales),
+            max_workers=max_workers,
+            save_dir=out_dir,
+            run_id=rid,
+            verbose=verbose,
         )
         all_per.append(per_img)
         all_sum.append(summ)
 
-    per_df = pd.concat(all_per, ignore_index=True) if any(len(df) for df in all_per) else pd.DataFrame()
+    per_df = pd.concat([df for df in all_per if not df.empty], ignore_index=True) if any(len(df) for df in all_per) else pd.DataFrame()
     sum_df = pd.concat(all_sum, ignore_index=True) if all_sum else pd.DataFrame()
+
+    if out_dir:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        per_df.to_csv(out_dir / f"ALL__{rid}__per_image.csv", index=False)
+        sum_df.to_csv(out_dir / f"ALL__{rid}__summary.csv", index=False)
+
+    if verbose:
+        print("[eval] ALL done")
+
     return per_df, sum_df
