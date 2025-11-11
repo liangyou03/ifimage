@@ -12,46 +12,43 @@ from utils import SampleDataset, ensure_dir  # NO model logic inside utils
 
 # ---- config (no CLI) ----
 DATA_DIR   = Path("/ihome/jbwang/liy121/ifimage/00_dataset")
-OUTPUT_DIR = Path("markeronly")
+OUTPUT_DIR = Path("markeronly1")
 
 # CP-SAM knobs
 DIAMETER = None
 FLOW_THRESHOLD = 0.4
 CELLPROB_THRESHOLD = 0.0
 
+
 def run_cellsam_single(img2d: np.ndarray) -> np.ndarray:
     """Run CP-SAM on a single 2D grayscale image → int32 label mask."""
     masks, _, _ = segment_cellular_image(img2d, device='cuda')
-    return masks[0].astype(np.int32, copy=False)
+    return masks.astype(np.int32, copy=False)
 
 def main():
-    print("== Cytoplasm prediction (Marker only) ==")
+    print("== Nuclei prediction (DAPI) ==")
     print(f"DATA_DIR   : {DATA_DIR.resolve()}")
     print(f"OUTPUT_DIR : {OUTPUT_DIR.resolve()}")
     ensure_dir(OUTPUT_DIR)
 
     ds = SampleDataset(DATA_DIR)
-    print(f"Found {len(ds)} samples (marker optional).")
-
-    n_ok, n_skip = 0, 0
+    print(f"Found {len(ds)} samples with DAPI.")
+    n_ok = 0
+    
     for s in ds:
         try:
-            s.load_images()  # loads/normalizes images
-            if s.cell_chan is None:
-                n_skip += 1
-                print(f"[SKIP] {s.base} (no marker)")
-                continue
-            marker = s.cell_chan         # HxWx2, [MARKER, DAPI]
-            mask = run_cellsam_single(marker)
-            s.predicted_cell = mask
-            outp = OUTPUT_DIR / f"{s.base}_pred_marker_only.npy"
+            s.load_images()                       # fills s.nuc_chan (and s.cell_chan if exists)
+            mask = run_cellsam_single(s.cell_chan)
+            s.predicted_nuc = mask               # attach result on the object
+            outp = OUTPUT_DIR / f"{s.base}.npy"
             np.save(outp, mask)
             n_ok += 1
             print(f"[OK] {s.base} -> {outp.name} (labels: {int(mask.max())})")
         except Exception as e:
             print(f"[FAIL] {s.base}: {e}")
 
-    print(f"Done: cyto_ok={n_ok}, cyto_skip(no marker)={n_skip}, total={len(ds)}")
+    print(f"Done: nuclei={n_ok}/{len(ds)}")
 
 if __name__ == "__main__":
     main()
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     

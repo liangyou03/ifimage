@@ -341,7 +341,7 @@ def evaluate_dir(
 ):
     """Evaluate all paired images for one algorithm directory."""
     gt_strip = gt_strip or ["_cellbodies", "_dapimultimask", "_gt", "_GT"]
-    pred_strip = pred_strip or ["_pred_cyto", "_pred_nuc", "_pred", "_refined"]
+    pred_strip = pred_strip or ["_pred_cyto", "_pred_nuc", "_pred_marker_only","_pred", "_refined"]
 
     pairs = _pair_by_base(gt_dir, pred_dir, gt_glob, pred_glob, gt_strip, pred_strip)
 

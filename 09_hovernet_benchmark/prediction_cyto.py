@@ -23,11 +23,12 @@ def to_uint8(x):
     x = x.astype(np.float32); lo, hi = np.percentile(x, (0.5, 99.5)); hi = max(hi, lo + 1e-6)
     return np.clip((x - lo) / (hi - lo) * 255, 0, 255).astype(np.uint8)
 
-def fuse_to_rgb(marker: np.ndarray, dapi: np.ndarray) -> np.ndarray:
-    m = to_uint8(marker); d = to_uint8(dapi)
-    # 2通道→假彩RGB：R=marker, G=dapi, B=(0.5m+0.5d)
-    b = ((m.astype(np.uint16) + d.astype(np.uint16)) // 2).astype(np.uint8)
-    return np.stack([m, d, b], -1)
+def fuse_to_rgb(marker, dapi):
+    m = to_uint8(marker)
+    d = to_uint8(dapi)
+    fused = ((m.astype(np.uint16) + d.astype(np.uint16)) // 2).astype(np.uint8)
+    # 灰度 → 伪RGB（三通道相同）
+    return np.stack([fused, fused, fused], -1)
 
 def prep_ready_pngs():
     ensure_dir(READY_DIR)
@@ -49,7 +50,7 @@ def run_hovernet():
            f"--model_path={str(MODEL)}", f"--model_mode={MODEL_MODE}",
            "tile", "--input_dir", str(READY_DIR),
            "--output_dir", str(RAW_OUTDIR),
-           "--mem_usage", "0.1", "--draw_dot", "--save_qupath"]
+           "--mem_usage", "0.2", "--draw_dot", "--save_qupath"]
     print("RUN:", " ".join(cmd))
     subprocess.run(cmd, check=True, cwd=str(HOVER))
 
@@ -59,7 +60,7 @@ def collect_inst_maps():
         inst = loadmat(m).get("inst_map")
         if inst is None: continue
         np.save(OUT_DIR / f"{m.stem}_pred_cyto.npy", np.asarray(inst, dtype=np.int32))
-        print(f"[OK] {m.stem} -> {m.stem}_pred_cyto.npy")
+        print(f"[OK] {m.stem} -> {m.stem}_pred_cyto.npy (labels={int(inst.max())})")
 
 def main():
     assert RUN_INFER.exists()

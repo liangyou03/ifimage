@@ -1,12 +1,13 @@
 algs=(
-/ihome/jbwang/liy121/ifimage/02_stardist_benchmark/cyto_prediction
-/ihome/jbwang/liy121/ifimage/03_cellsam_benchmark/cyto_prediction
-/ihome/jbwang/liy121/ifimage/04_mesmer_benchmark/cyto_prediction
-/ihome/jbwang/liy121/ifimage/06_watershed_benchmark/cyto_prediction
-/ihome/jbwang/liy121/ifimage/07_omnipose_benchmark/cyto_prediction
-/ihome/jbwang/liy121/ifimage/011_lacss/cyto_prediction
-/ihome/jbwang/liy121/ifimage/09_hovernet_benchmark/cyto_prediction
-/ihome/jbwang/liy121/ifimage/08_splinedist_benchmark/cyto_prediction
+# /ihome/jbwang/liy121/ifimage/02_stardist_benchmark/cyto_prediction
+# /ihome/jbwang/liy121/ifimage/03_cellsam_benchmark/cyto_prediction
+# /ihome/jbwang/liy121/ifimage/04_mesmer_benchmark/cyto_prediction
+# /ihome/jbwang/liy121/ifimage/06_watershed_benchmark/cyto_prediction
+# /ihome/jbwang/liy121/ifimage/07_omnipose_benchmark/cyto_prediction
+# /ihome/jbwang/liy121/ifimage/011_lacss/cyto_prediction
+# /ihome/jbwang/liy121/ifimage/09_hovernet_benchmark/cyto_prediction
+# /ihome/jbwang/liy121/ifimage/08_splinedist_benchmark/cyto_prediction
+/ihome/jbwang/liy121/ifimage/012_microsam_benchmark/cyto_prediction
 )
 MARKER=/ihome/jbwang/liy121/ifimage/00_dataset
 

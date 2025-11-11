@@ -119,7 +119,7 @@ def evaluate_nuclei_benchmark(
         pred_glob=pred_glob,
         gt_strip=["_dapimultimask"],
         pred_strip={
-            algo: ["_pred_nuc", "_nuc","_pred_cell", "_pred", "_nuclei", "_prediction", "_refined", "_filter", "_filtered"]
+            algo: ["_pred_nuc", "_nuc","_pred_cell", "_pred_marker_only","_pred", "_nuclei", "_prediction", "_refined", "_filter", "_filtered"]
             for algo in nuclei_pred_dirs
         },
         ap_thresholds=ap_thresholds,
@@ -136,7 +136,7 @@ def evaluate_nuclei_benchmark(
     # IoU@0.50 per-image
     add_tables = []
     for algo, pdir in cfg.pred_dirs.items():
-        strips = cfg.pred_strip.get(algo, ["_pred_nuc","_pred_cell", "_pred","_nuc","_pred", "_nuclei", "_prediction", "_refined", "_filter", "_filtered"])
+        strips = cfg.pred_strip.get(algo, ["_pred_nuc","_pred_marker_only","_pred_cell", "_pred","_nuc","_pred", "_nuclei", "_prediction", "_refined", "_filter", "_filtered"])
         add_tables.append(
             _compute_iou50_table(cfg.gt_dir, pdir, algo, cfg.gt_glob, cfg.pred_glob, cfg.gt_strip, strips)
         )
@@ -185,7 +185,7 @@ def evaluate_cell_benchmark(
         pred_glob=pred_glob,
         gt_strip=["_cellbodies"],
         pred_strip={
-            algo: ["_pred_cyto", "_cyto", "_pred_cell","_pred", "_prediction", "_refined", "_filter", "_filtered", "_cyto_filter"]
+            algo: ["_pred_cyto", "_cyto", "_pred_marker_only","_pred_cell","_pred", "_prediction", "_refined", "_filter", "_filtered", "_cyto_filter"]
             for algo in cyto_pred_dirs
         },
         ap_thresholds=ap_thresholds,
@@ -202,7 +202,7 @@ def evaluate_cell_benchmark(
     # IoU@0.50 per-image
     add_tables = []
     for algo, pdir in cfg.pred_dirs.items():
-        strips = cfg.pred_strip.get(algo, ["_pred_cyto", "_pred_cell","_pred","_cyto", "_cell", "_prediction", "_refined", "_filter", "_filtered", "_cyto_filter"])
+        strips = cfg.pred_strip.get(algo, ["_pred_cyto","_pred_marker_only", "_pred_cell","_pred","_cyto", "_cell", "_prediction", "_refined", "_filter", "_filtered", "_cyto_filter"])
         add_tables.append(
             _compute_iou50_table(cfg.gt_dir, pdir, algo, cfg.gt_glob, cfg.pred_glob, cfg.gt_strip, strips)
         )
