@@ -108,6 +108,7 @@ def evaluate_nuclei_benchmark(
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Evaluate nuclei task and append IoU@0.50 to per-image results.
+    评估核分割任务并将IoU@0.50添加到每张图像的结果中。
 
     GT:   <dataset_dir>/*_dapimultimask.npy
     PRED: folders with *.npy label masks
@@ -118,10 +119,31 @@ def evaluate_nuclei_benchmark(
         gt_glob="*_dapimultimask.npy",
         pred_glob=pred_glob,
         gt_strip=["_dapimultimask"],
+        
+        # ========== 修复部分 | FIXED SECTION ==========
+        # 旧代码 | OLD CODE:
+        # pred_strip={
+        #     algo: ["_pred_nuc", "_nuc","_pred_cell", "_pred_marker_only","_pred", ...]
+        #     for algo in nuclei_pred_dirs
+        # },
+        
+        # 新代码 | NEW CODE:
         pred_strip={
-            algo: ["_pred_nuc", "_nuc","_pred_cell", "_pred_marker_only","_pred", "_nuclei", "_prediction", "_refined", "_filter", "_filtered"]
-            for algo in nuclei_pred_dirs
+            # 大多数算法使用 _pred_nuclei | Most use _pred_nuclei
+            "CellposeSAM": ["_pred_nuclei", "_nuclei", "_pred", "_nuc"],
+            "StarDist": ["_pred_nuclei", "_nuclei", "_pred", "_nuc"],
+            "MESMER": ["_pred_nuclei", "_nuclei", "_pred", "_nuc"],
+            "Watershed": ["_pred_nuclei", "_nuclei", "_pred", "_nuc"],
+            "Omnipose": ["_pred_nuclei", "_nuclei", "_pred", "_nuc"],
+            "LACSS": ["_pred_nuclei", "_nuclei", "_pred", "_nuc"],
+            
+            # 少数算法使用简单命名 | Some use simpler naming
+            "CellSAM": ["_pred_nuc", "_nuc", "_pred", "_nuclei"],
+            "SplineDist": ["_pred_nuc", "_nuc", "_pred", "_nuclei"],
+            "MicroSAM": ["_pred_nuc", "_nuc", "_pred", "_nuclei"],
         },
+        # ========== 修复结束 | END FIX ==========
+        
         ap_thresholds=ap_thresholds,
         boundary_scales=boundary_scales,
     )
@@ -136,9 +158,10 @@ def evaluate_nuclei_benchmark(
     # IoU@0.50 per-image
     add_tables = []
     for algo, pdir in cfg.pred_dirs.items():
-        strips = cfg.pred_strip.get(algo, ["_pred_nuc","_pred_marker_only","_pred_cell", "_pred","_nuc","_pred", "_nuclei", "_prediction", "_refined", "_filter", "_filtered"])
+        strips = cfg.pred_strip.get(algo, ["_pred_nuclei", "_nuclei", "_pred", "_nuc"])
         add_tables.append(
-            _compute_iou50_table(cfg.gt_dir, pdir, algo, cfg.gt_glob, cfg.pred_glob, cfg.gt_strip, strips)
+            _compute_iou50_table(cfg.gt_dir, pdir, algo, cfg.gt_glob, cfg.pred_glob, 
+                                cfg.gt_strip, strips)
         )
     iou_df = pd.concat(add_tables, ignore_index=True) if add_tables else pd.DataFrame()
     if not iou_df.empty:
