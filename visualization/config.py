@@ -24,7 +24,13 @@ RESULTS_DIR = Path("/ihome/jbwang/liy121/ifimage/evaluation_results")
 
 # Where plots are saved
 # 图表的保存位置
-PLOTS_DIR = Path("/ihome/jbwang/liy121/ifimage/plots")
+PLOTS_DIR = Path("/ihome/jbwang/liy121/ifimage/plots_DEC12")
+
+# Name of the subdirectory that stores PNG exports
+PNG_SUBDIR_NAME = "png"
+
+# Name of the subdirectory storing versions without legends
+NO_LEGEND_SUBDIR_NAME = "no_legend"
 
 # ============================================================================
 # ALGORITHM DIRECTORIES | 算法目录配置
@@ -163,6 +169,57 @@ ALGORITHM_MARKERS = {
     "MicroSAM": "P",                    # Plus (filled) | 加号（填充）
 }
 
+# Short display aliases for algorithms (keeps legends compact)
+ALGORITHM_DISPLAY_NAMES = {
+    "CellposeSAM_Unrefined": "Cellpose-U",
+    "Cellpose Unrefined": "Cellpose-U",
+    "cellpose_unrefined": "Cellpose-U",
+}
+
+
+def get_algorithm_display_name(name: str) -> str:
+    """Return a compact display label for an algorithm."""
+    return ALGORITHM_DISPLAY_NAMES.get(name, name)
+
+
+def save_figure_with_no_legend(fig, pdf_path, png_path, *, dpi, transparent, save_kwargs=None):
+    """
+    Save a figure normally plus a legend-free copy under a subfolder.
+    
+    Args:
+        fig: matplotlib figure
+        pdf_path: destination PDF path (Path)
+        png_path: destination PNG path (Path)
+        dpi: DPI for PNG export
+        transparent: whether to use transparent background
+        save_kwargs: optional dict passed to fig.savefig (e.g., bbox_inches)
+    """
+    if save_kwargs is None:
+        save_kwargs = {}
+    pdf_path.parent.mkdir(parents=True, exist_ok=True)
+    png_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    fig.savefig(pdf_path, format="pdf", transparent=transparent, **save_kwargs)
+    fig.savefig(png_path, format="png", dpi=dpi, transparent=transparent, **save_kwargs)
+    
+    no_leg_pdf = pdf_path.parent / NO_LEGEND_SUBDIR_NAME / pdf_path.name
+    no_leg_png = png_path.parent / NO_LEGEND_SUBDIR_NAME / png_path.name
+    no_leg_pdf.parent.mkdir(parents=True, exist_ok=True)
+    no_leg_png.parent.mkdir(parents=True, exist_ok=True)
+    
+    stored_legends = []
+    for ax in getattr(fig, "axes", []):
+        leg = ax.get_legend()
+        if leg is not None:
+            stored_legends.append((ax, leg))
+            leg.remove()
+    
+    fig.savefig(no_leg_pdf, format="pdf", transparent=transparent, **save_kwargs)
+    fig.savefig(no_leg_png, format="png", dpi=dpi, transparent=transparent, **save_kwargs)
+    
+    for ax, leg in stored_legends:
+        ax.add_artist(leg)
+
 # Figure DPI for saved images
 # 保存图像的DPI（分辨率）
 FIGURE_DPI = 300
@@ -172,14 +229,14 @@ FIGURE_DPI = 300
 TRANSPARENT_BG = True
 
 # Default figure size (width, height) in inches
-# 默认图形尺寸（宽度，高度），单位为英寸
+
 DEFAULT_FIGSIZE = (7, 5)
 
 # Font sizes for different plot elements
 # 不同绘图元素的字体大小
 FONT_SIZES = {
-    "title": 11,    # Figure title | 图表标题
-    "label": 10,    # Axis labels | 坐标轴标签
-    "legend": 9,    # Legend text | 图例文字
-    "tick": 9,      # Tick labels | 刻度标签
+    "title": 18,    # Figure title | 图表标题
+    "label": 12,    # Axis labels | 坐标轴标签
+    "legend": 15,    # Legend text | 图例文字
+    "tick": 12,      # Tick labels | 刻度标签
 }

@@ -15,13 +15,19 @@ from pathlib import Path
 
 # Import shared configuration
 from config import (
-    RESULTS_DIR, PLOTS_DIR, FIGURE_DPI, TRANSPARENT_BG,
+    RESULTS_DIR, PLOTS_DIR, PNG_SUBDIR_NAME, FIGURE_DPI, TRANSPARENT_BG,
     ALGORITHM_COLORS, ALGORITHM_LINESTYLES, ALGORITHM_MARKERS,
-    DEFAULT_FIGSIZE, FONT_SIZES
+    DEFAULT_FIGSIZE, FONT_SIZES, get_algorithm_display_name,
+    save_figure_with_no_legend
 )
+
+# Dedicated legend font size for precision vs IoU plots
+LEGEND_FONT_SIZE = 9
 
 # Ensure output directory exists
 PLOTS_DIR.mkdir(parents=True, exist_ok=True)
+PNG_DIR = PLOTS_DIR / PNG_SUBDIR_NAME
+PNG_DIR.mkdir(parents=True, exist_ok=True)
 
 # ============================================================================
 # STYLE
@@ -102,23 +108,27 @@ def main():
             marker=get_algorithm_marker(algo),
             linewidth=2,
             markersize=6,
-            label=f"{algo} (mAP={mAP[algo]:.3f})"
+            label=f"{get_algorithm_display_name(algo)} (mAP={mAP[algo]:.3f})"
         )
     
-    ax.set_xlabel("IoU Threshold")
-    ax.set_ylabel("Average Precision")
+    ax.set_xlabel("IOU")
+    ax.set_ylabel("Precision")
     ax.set_xlim(thr.min(), thr.max())
     ax.set_ylim(0, 1.0)
     ax.minorticks_on()
     ax.grid(alpha=0.3)
-    ax.legend(frameon=False)
+    ax.legend(frameon=False, fontsize=LEGEND_FONT_SIZE)
     
     plt.tight_layout()
     
-    out_pdf = PLOTS_DIR / "06_nuclei_overall_ap.pdf"
-    out_png = PLOTS_DIR / "06_nuclei_overall_ap.png"
-    fig.savefig(out_pdf, format="pdf", transparent=TRANSPARENT_BG)
-    fig.savefig(out_png, format="png", dpi=FIGURE_DPI, transparent=TRANSPARENT_BG)
+    out_pdf = PLOTS_DIR / "nuclei_overall_ap.pdf"
+    out_png = PNG_DIR / "nuclei_overall_ap.png"
+    # Caption: Precision versus IoU thresholds for nuclei segmentation.
+    save_figure_with_no_legend(
+        fig, out_pdf, out_png,
+        dpi=FIGURE_DPI,
+        transparent=TRANSPARENT_BG
+    )
     
     print(f"✓ Saved: {out_pdf}")
     print(f"✓ Saved: {out_png}")

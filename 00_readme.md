@@ -11,28 +11,20 @@ gfap_6390.tiff -> raw dapi chan
 Every image is 1388 * 1040
 
 
-# conda environments:
-#
-base                 * /ihome/jbwang/liy121/miniconda3
-cellmofo               /ihome/jbwang/liy121/miniconda3/envs/cellmofo
-cellvit_env            /ihome/jbwang/liy121/miniconda3/envs/cellvit_env
-cellvit_py311          /ihome/jbwang/liy121/miniconda3/envs/cellvit_py311
-centermask2            /ihome/jbwang/liy121/miniconda3/envs/centermask2
-deepcell_retinamask    /ihome/jbwang/liy121/miniconda3/envs/deepcell_retinamask
-hovernet               /ihome/jbwang/liy121/miniconda3/envs/hovernet
-hovernet_py310         /ihome/jbwang/liy121/miniconda3/envs/hovernet_py310
-ifimage                /ihome/jbwang/liy121/miniconda3/envs/ifimage
-ifimage-cpsam-gpu      /ihome/jbwang/liy121/miniconda3/envs/ifimage-cpsam-gpu
-ifimage_cellsam        /ihome/jbwang/liy121/miniconda3/envs/ifimage_cellsam
-ifimage_evaluation     /ihome/jbwang/liy121/miniconda3/envs/ifimage_evaluation
-ifimage_splinedist     /ihome/jbwang/liy121/miniconda3/envs/ifimage_splinedist
-ifimage_stardist       /ihome/jbwang/liy121/miniconda3/envs/ifimage_stardist
-lacss                  /ihome/jbwang/liy121/miniconda3/envs/lacss
-micro-sam              /ihome/jbwang/liy121/miniconda3/envs/micro-sam
-omnipose               /ihome/jbwang/liy121/miniconda3/envs/omnipose
-openmmlab              /ihome/jbwang/liy121/miniconda3/envs/openmmlab
+## Nov 27
+/ihome/jbwang/liy121/ifimage/run_evaluation.py
 
+This script evaluates all segmentation algorithms and saves results to disk.
+You only need to run this ONCE, or when:
+  - Adding new algorithms
+  - Changing ground truth data
+  - Modifying evaluation parameters (IoU thresholds, etc.)
 
+- /ihome/jbwang/liy121/ifimage/visualization
+集中管理可视化文件
+
+- /ihome/jbwang/liy121/ifimage/visualization/config.py
+管理可视化参数与部分路径
 
 
 

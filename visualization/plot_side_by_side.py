@@ -15,13 +15,18 @@ from pathlib import Path
 
 # Import shared configuration
 from config import (
-    RESULTS_DIR, PLOTS_DIR, FIGURE_DPI, TRANSPARENT_BG,
+    RESULTS_DIR, PLOTS_DIR, PNG_SUBDIR_NAME, FIGURE_DPI, TRANSPARENT_BG,
     ALGORITHM_COLORS, ALGORITHM_LINESTYLES, ALGORITHM_MARKERS,
-    FONT_SIZES
+    FONT_SIZES, get_algorithm_display_name, save_figure_with_no_legend
 )
+
+# Dedicated legend font size for the precision-IoU panels
+LEGEND_FONT_SIZE = 7
 
 # Ensure output directory exists
 PLOTS_DIR.mkdir(parents=True, exist_ok=True)
+PNG_DIR = PLOTS_DIR / PNG_SUBDIR_NAME
+PNG_DIR.mkdir(parents=True, exist_ok=True)
 
 # ============================================================================
 # STYLE
@@ -123,17 +128,21 @@ def main():
             marker=get_algorithm_marker(algo),
             linewidth=2,
             markersize=5,
-            label=f"{algo} (mAP={mAP_cell[algo]:.2f})"
+            label=f"{get_algorithm_display_name(algo)} (mAP={mAP_cell[algo]:.2f})"
         )
     
-    axL.set_title("Cell benchmark")
-    axL.set_xlabel("IoU Threshold")
-    axL.set_ylabel("Average Precision")
+    axL.set_xlabel("Precision")
+    axL.set_ylabel("Precision")
     axL.set_xlim(thr.min(), thr.max())
     axL.set_ylim(0, 1.0)
     axL.minorticks_on()
     axL.grid(alpha=0.3)
-    axL.legend(frameon=False, fontsize=7)
+    axL.legend(frameon=False, fontsize=LEGEND_FONT_SIZE)
+    axL.text(
+        0.02, 0.98, "Cell benchmark",
+        transform=axL.transAxes, ha='left', va='top',
+        fontsize=11, fontweight='bold'
+    )
     
     # Right panel: Nuclei segmentation
     for algo, row in curve_nuc.iterrows():
@@ -144,23 +153,31 @@ def main():
             marker=get_algorithm_marker(algo),
             linewidth=2,
             markersize=5,
-            label=f"{algo} (mAP={mAP_nuc[algo]:.2f})"
+            label=f"{get_algorithm_display_name(algo)} (mAP={mAP_nuc[algo]:.2f})"
         )
     
-    axR.set_title("Nuclei benchmark")
-    axR.set_xlabel("IoU Threshold")
+    axR.set_xlabel("Precision")
     axR.set_xlim(thr.min(), thr.max())
     axR.set_ylim(0, 1.0)
     axR.minorticks_on()
     axR.grid(alpha=0.3)
-    axR.legend(frameon=False, fontsize=7)
+    axR.legend(frameon=False, fontsize=LEGEND_FONT_SIZE)
+    axR.text(
+        0.02, 0.98, "Nuclei benchmark",
+        transform=axR.transAxes, ha='left', va='top',
+        fontsize=11, fontweight='bold'
+    )
     
     plt.tight_layout()
     
-    out_pdf = PLOTS_DIR / "08_cell_vs_nuclei_side_by_side.pdf"
-    out_png = PLOTS_DIR / "08_cell_vs_nuclei_side_by_side.png"
-    fig.savefig(out_pdf, format="pdf", transparent=TRANSPARENT_BG)
-    fig.savefig(out_png, format="png", dpi=FIGURE_DPI, transparent=TRANSPARENT_BG)
+    out_pdf = PLOTS_DIR / "cell_vs_nuclei_side_by_side.pdf"
+    out_png = PNG_DIR / "cell_vs_nuclei_side_by_side.png"
+    # Caption: Precision versus IoU comparison for cell and nuclei benchmarks in parallel.
+    save_figure_with_no_legend(
+        fig, out_pdf, out_png,
+        dpi=FIGURE_DPI,
+        transparent=TRANSPARENT_BG
+    )
     
     print(f"✓ Saved: {out_pdf}")
     print(f"✓ Saved: {out_png}")

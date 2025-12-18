@@ -15,13 +15,18 @@ from pathlib import Path
 
 # Import shared configuration
 from config import (
-    RESULTS_DIR, PLOTS_DIR, FIGURE_DPI, TRANSPARENT_BG,
+    RESULTS_DIR, PLOTS_DIR, PNG_SUBDIR_NAME, FIGURE_DPI, TRANSPARENT_BG,
     ALGORITHM_COLORS, ALGORITHM_LINESTYLES, ALGORITHM_MARKERS,
-    FONT_SIZES
+    FONT_SIZES, get_algorithm_display_name, save_figure_with_no_legend
 )
+
+# Dedicated legend font size for these precision-IoU panels
+LEGEND_FONT_SIZE = 7
 
 # Ensure output directory exists
 PLOTS_DIR.mkdir(parents=True, exist_ok=True)
+PNG_DIR = PLOTS_DIR / PNG_SUBDIR_NAME
+PNG_DIR.mkdir(parents=True, exist_ok=True)
 
 # ============================================================================
 # STYLE
@@ -102,6 +107,7 @@ def main():
     fig, axes = plt.subplots(1, 2, figsize=(10, 4), sharey=True)
     
     variants = ["2channel", "markeronly"]
+    variant_labels = {"2channel": "2-channel", "markeronly": "Marker-only"}
     algs = sorted(olig2["algorithm"].unique())
     
     for ax, variant in zip(axes, variants):
@@ -120,27 +126,35 @@ def main():
                 marker=get_algorithm_marker(algo),
                 linewidth=1.8,
                 markersize=5,
-                label=f"{algo} (mAP={mAP[algo]:.3f})"
+                label=f"{get_algorithm_display_name(algo)} (mAP={mAP[algo]:.3f})"
             )
         
-        ax.set_title(f"OLIG2: {variant.replace('only', '-only')}")
-        ax.set_xlabel("IoU threshold")
+        ax.text(
+            0.02, 0.98, f"OLIG2 {variant_labels[variant]}",
+            transform=ax.transAxes, ha='left', va='top',
+            fontsize=11, fontweight='bold'
+        )
+        ax.set_xlabel("IOU")
         ax.set_xlim(thr.min(), thr.max())
         ax.set_ylim(0, 1.0)
         ax.minorticks_on()
         ax.grid(alpha=0.3)
     
-    axes[0].set_ylabel("AP")
-    axes[1].legend(fontsize=7, ncols=1, loc="center left", bbox_to_anchor=(1.02, 0.5))
+    axes[0].set_ylabel("Precision")
+    axes[1].legend(fontsize=LEGEND_FONT_SIZE, ncols=1, loc="center left", bbox_to_anchor=(1.02, 0.5))
     
-    fig.suptitle("OLIG2: AP curves (2channel vs marker-only)", fontsize=12)
+    # fig.suptitle("OLIG2: AP curves (2channel vs marker-only)", fontsize=12)
     fig.tight_layout()
     fig.subplots_adjust(top=0.9, right=0.78)
     
-    out_pdf = PLOTS_DIR / "03_marker_comparison.pdf"
-    out_png = PLOTS_DIR / "03_marker_comparison.png"
-    fig.savefig(out_pdf, format="pdf", transparent=TRANSPARENT_BG)
-    fig.savefig(out_png, format="png", dpi=FIGURE_DPI, transparent=TRANSPARENT_BG)
+    out_pdf = PLOTS_DIR / "marker_variant_comparison.pdf"
+    out_png = PNG_DIR / "marker_variant_comparison.png"
+    # Caption: Precision versus IoU thresholds for OLIG2 using both input variants.
+    save_figure_with_no_legend(
+        fig, out_pdf, out_png,
+        dpi=FIGURE_DPI,
+        transparent=TRANSPARENT_BG
+    )
     
     print(f"✓ Saved: {out_pdf}")
     print(f"✓ Saved: {out_png}")

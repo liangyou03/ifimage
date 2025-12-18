@@ -12,12 +12,15 @@ from pathlib import Path
 
 # Import shared configuration
 from config import (
-    PLOTS_DIR, ALGORITHM_COLORS, ALGORITHM_LINESTYLES, 
-    ALGORITHM_MARKERS, FIGURE_DPI
+    PLOTS_DIR, PNG_SUBDIR_NAME, ALGORITHM_COLORS, ALGORITHM_LINESTYLES, 
+    ALGORITHM_MARKERS, FIGURE_DPI, get_algorithm_display_name,
+    save_figure_with_no_legend, TRANSPARENT_BG
 )
 
 # Ensure output directory exists
 PLOTS_DIR.mkdir(parents=True, exist_ok=True)
+PNG_DIR = PLOTS_DIR / PNG_SUBDIR_NAME
+PNG_DIR.mkdir(parents=True, exist_ok=True)
 
 # ============================================================================
 # MAIN VISUALIZATION
@@ -36,11 +39,15 @@ def main():
     ax1.set_xlim(0, 1)
     ax1.set_ylim(0, len(algos))
     ax1.axis('off')
-    ax1.set_title('Algorithm Colors', fontsize=14, fontweight='bold')
+    ax1.text(
+        0.5, len(algos) - 0.1, 'Algorithm colors',
+        ha='center', va='bottom', fontsize=13, fontweight='bold'
+    )
     
     for i, algo in enumerate(algos):
         y = len(algos) - i - 0.5
         color = ALGORITHM_COLORS[algo]
+        display_name = get_algorithm_display_name(algo)
         
         # Draw color rectangle
         rect = mpatches.Rectangle((0.05, y - 0.4), 0.15, 0.8, 
@@ -48,7 +55,7 @@ def main():
         ax1.add_patch(rect)
         
         # Draw algorithm name
-        ax1.text(0.25, y, algo, va='center', ha='left', fontsize=10)
+        ax1.text(0.25, y, display_name, va='center', ha='left', fontsize=10)
         
         # Draw hex color code
         ax1.text(0.75, y, color, va='center', ha='right', 
@@ -58,7 +65,10 @@ def main():
     ax2.set_xlim(0, 3)
     ax2.set_ylim(0, len(algos))
     ax2.axis('off')
-    ax2.set_title('Line & Marker Styles', fontsize=14, fontweight='bold')
+    ax2.text(
+        1.5, len(algos) - 0.1, 'Line and marker styles',
+        ha='center', va='bottom', fontsize=13, fontweight='bold'
+    )
     
     for i, algo in enumerate(algos):
         y = len(algos) - i - 0.5
@@ -77,17 +87,18 @@ def main():
         ax2.text(2.5, y, style_desc, va='center', ha='left', 
                 fontsize=9, family='monospace')
     
-    # ========== OVERALL TITLE ==========
-    fig.suptitle('Algorithm Color & Style Reference', 
-                 fontsize=16, fontweight='bold', y=0.98)
-    
-    plt.tight_layout(rect=[0, 0, 1, 0.96])
+    plt.tight_layout()
     
     # Save
-    out_pdf = PLOTS_DIR / "00_color_legend.pdf"
-    out_png = PLOTS_DIR / "00_color_legend.png"
-    fig.savefig(out_pdf, format="pdf", dpi=FIGURE_DPI, bbox_inches='tight')
-    fig.savefig(out_png, format="png", dpi=FIGURE_DPI, bbox_inches='tight')
+    out_pdf = PLOTS_DIR / "color_legend.pdf"
+    out_png = PNG_DIR / "color_legend.png"
+    # Caption: Reference colors, line styles, and markers for every algorithm.
+    save_figure_with_no_legend(
+        fig, out_pdf, out_png,
+        dpi=FIGURE_DPI,
+        transparent=TRANSPARENT_BG,
+        save_kwargs={'bbox_inches': 'tight'}
+    )
     
     print(f"✓ Saved: {out_pdf}")
     print(f"✓ Saved: {out_png}")

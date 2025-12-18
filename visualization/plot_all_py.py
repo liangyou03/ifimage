@@ -20,7 +20,10 @@ def main():
         "plot_cell_per_type.py",
         "plot_marker_comp.py",
         "plot_nuclei_overall.py",
+        "plot_nuclei_marker_all.py",
         "plot_side_by_side.py",
+        "more_metrics.py",
+        "plot_marker.py",
     ]
     
     print("=" * 60)

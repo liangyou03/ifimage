@@ -16,13 +16,19 @@ from pathlib import Path
 
 # Import shared configuration
 from config import (
-    RESULTS_DIR, PLOTS_DIR, FIGURE_DPI, TRANSPARENT_BG,
+    RESULTS_DIR, PLOTS_DIR, PNG_SUBDIR_NAME, FIGURE_DPI, TRANSPARENT_BG,
     CELL_TYPE_GROUPS, ALGORITHM_COLORS, ALGORITHM_LINESTYLES, 
-    ALGORITHM_MARKERS, FONT_SIZES
+    ALGORITHM_MARKERS, FONT_SIZES, get_algorithm_display_name,
+    save_figure_with_no_legend
 )
+
+# Dedicated legend size for precision vs IoU panels
+LEGEND_FONT_SIZE = 7
 
 # Ensure output directory exists
 PLOTS_DIR.mkdir(parents=True, exist_ok=True)
+PNG_DIR = PLOTS_DIR / PNG_SUBDIR_NAME
+PNG_DIR.mkdir(parents=True, exist_ok=True)
 
 # ============================================================================
 # STYLE
@@ -91,7 +97,11 @@ def main():
         sub = per_img[per_img["base"].str.contains(pattern, case=False, regex=True, na=False)]
         
         if sub.empty:
-            ax.set_title(f"Cell type: {gname} (no images)")
+            ax.text(
+                0.5, 0.5, f"{gname}\nNo data",
+                transform=ax.transAxes, ha='center', va='center',
+                fontsize=11, fontweight='bold'
+            )
             ax.axis("off")
             continue
         
@@ -110,17 +120,21 @@ def main():
                 marker=get_algorithm_marker(algo),
                 linewidth=2,
                 markersize=5,
-                label=f"{algo} (mAP={mAP[algo]:.2f})"
+                label=f"{get_algorithm_display_name(algo)} (mAP={mAP[algo]:.2f})"
             )
         
-        ax.set_title(f"Cell type: {gname}")
-        ax.set_xlabel("IoU Threshold")
-        ax.set_ylabel("Average Precision")
+        ax.text(
+            0.02, 0.98, gname,
+            transform=ax.transAxes, ha='left', va='top',
+            fontsize=11, fontweight='bold'
+        )
+        ax.set_xlabel("IOU")
+        ax.set_ylabel("Precision")
         ax.set_xlim(thr.min(), thr.max())
         ax.set_ylim(0, 1.0)
         ax.minorticks_on()
         ax.grid(alpha=0.3)
-        ax.legend(frameon=False, fontsize=7)
+        ax.legend(frameon=False, fontsize=LEGEND_FONT_SIZE)
     
     # Hide unused axes
     for j in range(len(CELL_TYPE_GROUPS), nrows * ncols):
@@ -128,10 +142,14 @@ def main():
     
     plt.tight_layout()
     
-    out_pdf = PLOTS_DIR / "02_cell_per_type.pdf"
-    out_png = PLOTS_DIR / "02_cell_per_type.png"
-    fig.savefig(out_pdf, format="pdf", transparent=TRANSPARENT_BG)
-    fig.savefig(out_png, format="png", dpi=FIGURE_DPI, transparent=TRANSPARENT_BG)
+    out_pdf = PLOTS_DIR / "cell_per_type.pdf"
+    out_png = PNG_DIR / "cell_per_type.png"
+    # Caption: Precision versus IoU thresholds for each cell type.
+    save_figure_with_no_legend(
+        fig, out_pdf, out_png,
+        dpi=FIGURE_DPI,
+        transparent=TRANSPARENT_BG
+    )
     
     print(f"✓ Saved: {out_pdf}")
     print(f"✓ Saved: {out_png}")
