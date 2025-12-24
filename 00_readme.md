@@ -11,6 +11,10 @@ gfap_6390.tiff -> raw dapi chan
 Every image is 1388 * 1040
 
 
+心脏数据的分析在 /ihome/jbwang/liy121/ifimage/heart
+完整数据的分析和 clinical 的分析在 /ihome/jbwang/liy121/ifimage/11_fulldata
+
+
 ## Nov 27
 /ihome/jbwang/liy121/ifimage/run_evaluation.py
 

@@ -2,14 +2,11 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
-
-
-
-img = np.load('/ihome/jbwang/liy121/ifimage/11_fulldata/segmentation_test/Snap-6257_mask_marker.npy')
+img = np.load('/ihome/jbwang/liy121/ifimage/heart/benchmark_results/omnipose_predictions/RA/RA1_dapi_pred.npy')
 print(img)
 print(img.max(), img.min())
 
 plt.imshow(img)
-plt.imsave('test.png', img)
+plt.imsave('/ihome/jbwang/liy121/ifimage/test3.png', img)
 
-#/ihome/jbwang/liy121/ifimage/test.py
+#python /ihome/jbwang/liy121/ifimage/test.py
